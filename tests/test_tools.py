@@ -191,6 +191,20 @@ class RefusalTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     host.encode(None, *args, 60)
 
+    def test_item_changes_are_checked_before_premiere_is_asked(self):
+        with self.assertRaisesRegex(ValueError, "at least one change"):
+            host.items("a.mov", {"rename": None, "remove": False}, 60)
+        with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
+            host.items("a.mov", {"remove": True, "label": 3}, 60)
+        with self.assertRaisesRegex(ValueError, "out_point must be after in_point"):
+            host.items("a.mov", {"subclip": {"name": "s", "in_point": 2, "out_point": 1}}, 60)
+        with self.assertRaisesRegex(ValueError, "No file at"):
+            host.items("a.mov", {"proxy": {"path": "/no/such/proxy.mov"}}, 60)
+
+    def test_scene_detect_needs_one_clip_address(self):
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            host.scene_detect(None, 0, None, None, 0.3, "report", False, 60)
+
     def test_tracks_need_something_to_do(self):
         with self.assertRaisesRegex(ValueError, "tracks to add or track states"):
             host.tracks(None, 0, 0, [], 60)
