@@ -4,7 +4,10 @@ import unittest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-TOOLS = {"premiere_status", "premiere_script", "premiere_cut"}
+TOOLS = {"premiere_status", "premiere_script", "premiere_cut", "premiere_project", "premiere_inspect",
+         "premiere_import", "premiere_sequence_new", "premiere_clip_place", "premiere_clip_props",
+         "premiere_transition_add", "premiere_media_replace", "premiere_markers_add", "premiere_mogrt_add",
+         "premiere_export"}
 
 
 class ProtocolTest(unittest.IsolatedAsyncioTestCase):
@@ -24,6 +27,23 @@ class ProtocolTest(unittest.IsolatedAsyncioTestCase):
             reply = await client.call_tool("premiere_cut", {
                 "project": "/cut.prproj", "master": "/m.mov",
                 "clips": [{"file": "/a.mov", "start": 0, "in_point": 0, "out_point": 1, "speed": 2}]})
+            self.assertTrue(reply.is_error)
+
+    async def test_new_tools_refuse_bad_input_before_touching_premiere(self):
+        params = StdioServerParameters(command=sys.executable, args=["-m", "cavi_premiere_mcp.server"])
+        async with stdio_client(params) as (r, w), ClientSession(r, w) as client:
+            await client.initialize()
+            for name, args, text in [
+                ("premiere_export", {"master": "m.mov", "preset": "/p.epr"}, "absolute path"),
+                ("premiere_project", {"action": "new", "path": "p.prproj"}, "absolute path"),
+                ("premiere_sequence_new", {"name": "S"}, "exactly one of clip or preset"),
+                ("premiere_markers_add", {}, "markers or a beat_grid"),
+                ("premiere_clip_props", {"scale": 50}, "exactly one of at or position_index"),
+            ]:
+                reply = await client.call_tool(name, args)
+                self.assertTrue(reply.is_error, name)
+                self.assertIn(text, reply.content[0].text, name)
+            reply = await client.call_tool("premiere_transition_add", {"at": 1, "frames": 0})
             self.assertTrue(reply.is_error)
 
 
