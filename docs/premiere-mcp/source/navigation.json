@@ -1,0 +1,45 @@
+{
+  "title": "Premiere MCP",
+  "version": "{{PRODUCT_VERSION}}",
+  "sections": [
+    {
+      "title": "Introduction",
+      "pages": [
+        { "title": "Overview", "path": "introduction/overview.md" },
+        { "title": "Installation", "path": "introduction/installation.md" },
+        { "title": "Quickstart", "path": "introduction/quickstart.md" }
+      ]
+    },
+    {
+      "title": "Guides",
+      "pages": [
+        { "title": "Set up the Bridge relay", "path": "guides/bridge-setup.md" },
+        { "title": "Make a first edit", "path": "guides/first-edit.md" },
+        { "title": "Cut from a clip list", "path": "guides/cut-from-clip-list.md" },
+        { "title": "Export and encode", "path": "guides/exports.md" },
+        { "title": "Troubleshooting", "path": "guides/troubleshooting.md" }
+      ]
+    },
+    {
+      "title": "Reference",
+      "pages": [
+        { "title": "Tools", "path": "reference/tools.md" },
+        { "title": "Results and errors", "path": "reference/results-and-errors.md" },
+        { "title": "Configuration", "path": "reference/configuration.md" },
+        { "title": "Premiere Pro behavior", "path": "reference/premiere-behavior.md" }
+      ]
+    },
+    {
+      "title": "Security",
+      "pages": [
+        { "title": "Security model", "path": "security/model.md" }
+      ]
+    },
+    {
+      "title": "Release",
+      "pages": [
+        { "title": "Version and support", "path": "release/version-and-support.md" }
+      ]
+    }
+  ]
+}
