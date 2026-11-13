@@ -105,6 +105,28 @@ def copy(sequence, kind, track, at, position_index, to_time, to_track, timeout):
                            to_time, clip["in_point"], clip["out_point"], "overwrite", timeout)
 
 
+def slip(sequence, kind, track, at, position_index, offset, in_point, with_linked, timeout):
+    if (at is None) == (position_index is None):
+        raise ValueError("Give exactly one of at or position_index")
+    if (offset is None) == (in_point is None):
+        raise ValueError("Give exactly one of offset or in_point")
+    if in_point is not None and in_point < 0:
+        raise ValueError("in_point cannot be negative")
+    args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
+            "offset": offset, "in_point": in_point, "with_linked": with_linked}
+    return host.invoke("clip_slip", args, timeout)
+
+
+class Slipped(Result):
+    sequence: str
+    clip: str
+    before: dict
+    after: dict
+    start: float
+    end: float
+    linked: int
+
+
 LUMETRI = (("exposure", "Exposure"), ("contrast", "Contrast"), ("highlights", "Highlights"),
            ("shadows", "Shadows"), ("whites", "Whites"), ("blacks", "Blacks"), ("temperature", "Temperature"),
            ("tint", "Tint"), ("saturation", "Saturation"), ("vibrance", "Vibrance"))
@@ -209,3 +231,15 @@ async def premiere_color(exposure: Annotated[float, Field(ge=-5, le=5)] | None =
               "whites": whites, "blacks": blacks, "temperature": temperature, "tint": tint,
               "saturation": saturation, "vibrance": vibrance}
     return await asyncio.to_thread(color, sequence, track, at, position_index, values, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_clip_slip(offset: float | None = None, in_point: Seconds | None = None, kind: Kind = "video",
+                             track: Track = 0, at: Seconds | None = None,
+                             position_index: Annotated[int, Field(ge=0)] | None = None, with_linked: bool = True,
+                             sequence: str | None = None, timeout: Timeout = 300) -> Slipped:
+    """Slip a clip: show a different part of its source while its place and length on the timeline stay.
+    offset shifts the source in point (positive shows later footage); in_point sets it. Linked clips slip
+    too. A slip past the end of the media is undone and reported."""
+    return await asyncio.to_thread(slip, sequence, kind, track, at, position_index, offset, in_point, with_linked,
+                                   timeout)

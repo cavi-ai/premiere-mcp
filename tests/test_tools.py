@@ -16,7 +16,7 @@ JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
          "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
          "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions", "effects", "effect_add", "effect_set",
-         "clip_fit", "items", "cut", "markers_edit", "gaps", "range_remove", "bins"]
+         "clip_fit", "items", "cut", "markers_edit", "gaps", "range_remove", "bins", "clip_slip"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -492,6 +492,10 @@ class ClipToolsTest(unittest.TestCase):
             clips.fade(None, "video", 0, None, None, 1, 0, 60)
         with self.assertRaisesRegex(ValueError, "exactly one of at or position_index"):
             clips.copy(None, "video", 0, 1.0, 0, 5.0, None, 60)
+        with self.assertRaisesRegex(ValueError, "exactly one of offset or in_point"):
+            clips.slip(None, "video", 0, 1.0, None, 1.0, 2.0, True, 60)
+        with self.assertRaisesRegex(ValueError, "in_point cannot be negative"):
+            clips.slip(None, "video", 0, 1.0, None, None, -1.0, True, 60)
 
 
 if __name__ == "__main__":

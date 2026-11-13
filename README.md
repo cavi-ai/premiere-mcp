@@ -62,6 +62,7 @@ Register it in your MCP client; the server speaks MCP over stdio:
 | `premiere_color` | Basic Lumetri Color correction (exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, saturation, vibrance); adds the effect when missing. |
 | `premiere_find` | Finds project items and placed clips by name or path; lists offline or unused items. |
 | `premiere_clip_copy` | Places another copy of a clip (same media and source range) at a time or track; effects are not copied. |
+| `premiere_clip_slip` | Slips a clip: shows a different part of its source while its place and length stay; linked clips slip too. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
 | `premiere_export` | Exports a sequence (whole, in/out range or work area, optional caption burn-in) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
