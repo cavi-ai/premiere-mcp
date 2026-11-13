@@ -1,10 +1,5 @@
 // Describe the open project: bins, project items, sequences with every track's clips and
 // transitions, and sequence markers. Input: {sequence} (a name; every sequence when empty).
-function field(xml, name) {
-    var found = new RegExp("Column\\.Intrinsic\\." + name + ">([^<]*)<").exec(xml);
-    return found ? found[1] : null;
-}
-
 function seconds(code, fps) {
     var p = String(code).split(/[:;]/);
     return p.length === 4 && fps ? Number(p[0]) * 3600 + Number(p[1]) * 60 + Number(p[2]) + Number(p[3]) / fps : null;

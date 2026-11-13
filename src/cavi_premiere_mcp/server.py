@@ -236,6 +236,47 @@ class Captions(Result):
     captions: int
 
 
+class Key(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    time: Seconds
+    value: Any = None
+    color: Annotated[str, Field(pattern=r"^#?[0-9a-fA-F]{6}$")] | None = None
+    interpolation: Literal["linear", "hold", "bezier"] | None = None
+
+
+class Param(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    value: Any = None
+    color: Annotated[str, Field(pattern=r"^#?[0-9a-fA-F]{6}$")] | None = None
+    index: Annotated[int, Field(ge=0)] = 0  # which of several parameters share this display name
+    keyframes: list[Key] | None = None
+
+
+class Effects(Result):
+    video: list[str]
+    audio: list[str]
+
+
+class EffectAdded(Result):
+    clip: str
+    components_before: int
+    components: list[dict[str, Any]]
+
+
+class EffectSet(Result):
+    clip: str
+    applied: dict[str, Any]
+    components: list[dict[str, Any]] | None = None
+
+
+class Fit(Result):
+    clip: str
+    source: dict[str, int]
+    sequence_size: dict[str, int]
+    scale: float
+
+
 class Keyframe(BaseModel):
     model_config = ConfigDict(extra="forbid")
     time: Seconds
@@ -566,6 +607,45 @@ async def premiere_frame_export(times: Annotated[list[Seconds], Field(min_length
     return await asyncio.to_thread(host.frame_export, sequence, times, folder, prefix, timeout)
 
 
+@mcp.tool(annotations=READ_ONLY)
+async def premiere_effects(filter: str = "", timeout: Timeout = 300) -> Effects:
+    """Video and audio effects Premiere offers (QE names), limited to names containing `filter`."""
+    return await asyncio.to_thread(host.effects, filter, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_effect_add(effect: str, kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
+                              position_index: Annotated[int, Field(ge=0)] | None = None,
+                              sequence: str | None = None, timeout: Timeout = 300) -> EffectAdded:
+    """Add a video or audio effect (a name premiere_effects lists) to the clip at `at` or position_index;
+    returns the clip's components with their parameters."""
+    return await asyncio.to_thread(host.effect_add, sequence, kind, track, at, position_index, effect, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_effect_set(component: str | None = None, params: list[Param] | None = None, list: bool = False,
+                              component_index: Annotated[int, Field(ge=0)] = 0, kind: Kind = "video",
+                              track: Track = 0, at: Seconds | None = None,
+                              position_index: Annotated[int, Field(ge=0)] | None = None,
+                              sequence: str | None = None, timeout: Timeout = 300) -> EffectSet:
+    """Set parameters of a clip's component by display names (Motion, Opacity, Lumetri Color, Crop, ...).
+    Each param is a value, a color (#RRGGBB) or keyframes (seconds from the clip's start, with linear,
+    hold or bezier interpolation). `index` picks among parameters that share a name. list=true returns the
+    component's parameters with their values (all components without `component`)."""
+    specs = [p.model_dump(exclude_none=True) for p in params or []]
+    return await asyncio.to_thread(host.effect_set, sequence, kind, track, at, position_index, component,
+                                   component_index, list, specs, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_clip_fit(mode: Literal["fit", "fill"] = "fit", track: Track = 0, at: Seconds | None = None,
+                            position_index: Annotated[int, Field(ge=0)] | None = None,
+                            sequence: str | None = None, timeout: Timeout = 300) -> Fit:
+    """Set a video clip's Motion Scale and center it so its source fits inside the frame (fit) or covers
+    it (fill), whatever its source size."""
+    return await asyncio.to_thread(host.clip_fit, sequence, track, at, position_index, mode, timeout)
+
+
 @mcp.tool(annotations=WRITES)
 async def premiere_transition_add(transition: str = "Cross Dissolve", frames: Annotated[int, Field(ge=1, le=600)] = 12,
                                   kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
@@ -612,12 +692,14 @@ Range = Literal["entire", "in_out", "work_area"]
 
 @mcp.tool(annotations=DESTRUCTIVE)
 async def premiere_export(master: str, preset: str | None = None, range: Range = "entire",
-                          replace: bool = False, sequence: str | None = None, timeout: Timeout = 1800) -> Export:
+                          replace: bool = False, burn_captions: bool | None = None, sequence: str | None = None,
+                          timeout: Timeout = 1800) -> Export:
     """Export a sequence through exportAsMediaDirect with a preset: an absolute .epr path or a name
     premiere_presets lists (format/name when the name is not unique, e.g. H264/...); default ProRes 422 HQ.
-    range is the whole sequence, its in/out points or its work area. Completion is judged by the
+    range is the whole sequence, its in/out points or its work area. burn_captions true or false exports from a copy of
+    the preset with its captions setting changed (H.264 presets burn captions in; ProRes presets do not). Completion is judged by the
     report file, the output released by every process and the ffprobe frame count, not the relay's answer."""
-    return await asyncio.to_thread(host.export, sequence, master, preset, range, replace, timeout)
+    return await asyncio.to_thread(host.export, sequence, master, preset, range, replace, timeout, burn_captions)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)

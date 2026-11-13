@@ -48,8 +48,12 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_encode` | Queues a sequence in Adobe Media Encoder with a preset and a range, starts the batch and judges the file. |
 | `premiere_interchange` | Exports a sequence as FCP XML, AAF or OMF, or imports an FCP XML into the project. |
 | `premiere_captions` | Imports an `.srt` and creates a caption track on a sequence. |
+| `premiere_effects` | Lists the video and audio effects Premiere offers, with a name filter. |
+| `premiere_effect_add` | Adds a video or audio effect to a placed clip and returns the clip's components. |
+| `premiere_effect_set` | Sets or lists any component parameter by display names, static or keyframed with linear, hold or bezier interpolation, with colors as `#RRGGBB`. |
+| `premiere_clip_fit` | Sets a video clip's Motion Scale and centers it so the source fits or fills the sequence frame. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
-| `premiere_export` | Exports a sequence (whole, in/out range or work area) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
+| `premiere_export` | Exports a sequence (whole, in/out range or work area, optional caption burn-in) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
 Paths are absolute. Photoshop and Premiere Pro are opened in the background (`open -g -a`) when
 they are not running. Times are seconds; tracks are 0-based (`track` 0 is V1 or A1); `sequence`
@@ -100,11 +104,28 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
 - `premiere_interchange` `import_xml` adds the XML's sequence to the project; an imported sequence
   keeps its name, so it can share one with the original.
 - `premiere_captions` counts cues in the `.srt`. The caption track shows in `premiere_frame_export`
-  stills; a ProRes export through `premiere_export` does not burn it in.
+  stills. `premiere_export` `burn_captions` exports from a copy of the preset (written to `.tmp/presets`
+  in the repository) with `DoCaptions` set: an H.264 preset burns the caption into the picture
+  (white text at the bottom in the frame; false removes it), a ProRes preset has no effect.
 - `premiere_mogrt_add` renders the template as placed (Bold Coming Up shows its default text in a
   frame). The built-in templates expose no text parameters, and the `Source Text` property of their
   `Text` component takes an encoded value: a plain string replaces the text with a broken render.
-  Setting text is verified only through the template's exposed parameters.
+  Setting text is verified only through the template's exposed parameters. The value of `Source Text`
+  is not JSON (no `textEditValue`) and `getMGTComponent` is null on these templates, so the
+  JSON path does not apply.
+- `premiere_effect_set` finds a component by display name (`component_index` for repeats) and a
+  parameter by display name (`index` when several share one, as Lumetri Color's Saturation does).
+  Key times are seconds from the clip's start. Measured: Lumetri Color Saturation 0 turned red
+  (255,0,0) into gray (135,135,135) and Temperature 60 moved (255,255,0) to (255,247,0); Crop Left and
+  Right 25 turned a green pixel black; Gaussian Blur Amount keyed 0 to 80 lowered the edge energy of
+  frames from 11.0 to 5.6 to 3.6; Transform Scale Height and Width 40 blacked a corner pixel; Ultra Key
+  with `#c60000` changed the keyed red area; audio Amplify Gain 0.9 raised the exported mean volume
+  from -24.1 dB to -0.5 dB. Lumetri's Input LUT and Look take no file: a path is refused and a list
+  index is accepted without changing the picture. The Gaussian Blur effect (not the legacy one) has
+  Amount where the legacy one has Blurriness; Transform has Scale Width and Scale Height with Uniform
+  Scale off.
+- `premiere_clip_fit` computes the scale from the source frame size (a 1280x720 clip in a 640x360
+  sequence gets Scale 50 for fit, 50 for fill) because the QE `scaleToFrameSize` flag cannot be set.
 - `premiere_tracks` adds stereo audio tracks and appends them after the last track.
 - `premiere_frame_export` writes `<folder>/<prefix>_<n>_<time>s.png` and checks each file and its
   PNG header on disk; a time at or past the sequence end is refused.

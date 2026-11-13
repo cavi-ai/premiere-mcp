@@ -257,3 +257,34 @@ function rangeSpan(sequence, range) {
     }
     return endSeconds(sequence);
 }
+
+// The components of a clip with their parameters: {name, index, params: [{name, index, value, keyed}]}.
+function describeComponents(clip) {
+    var list = [];
+    each(clip.components, function (component, i) {
+        var info = {name: component.displayName, index: i, params: []};
+        each(component.properties, function (param, k) {
+            var value = null, keyed = false;
+            try {
+                value = param.getValue();
+                value = typeof value === "object" && value !== null ? stringify(value) : value;
+            } catch (error) {
+                value = null;
+            }
+            try {
+                keyed = !!param.isTimeVarying();
+            } catch (error) {
+                keyed = false;
+            }
+            info.params.push({name: param.displayName, index: k, value: value === undefined ? null : value,
+                keyed: keyed});
+        });
+        list.push(info);
+    });
+    return list;
+}
+
+function field(xml, name) {
+    var found = new RegExp("Column\\.Intrinsic\\." + name + ">([^<]*)<").exec(xml);
+    return found ? found[1] : null;
+}

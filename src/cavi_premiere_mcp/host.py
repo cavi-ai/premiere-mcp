@@ -3,6 +3,7 @@
 import json
 import os
 import plistlib
+import re
 import shutil
 import tempfile
 import time
@@ -479,6 +480,40 @@ def frame_export(sequence, times, folder, prefix, timeout):
     return result
 
 
+def effects(filter_, timeout):
+    return invoke("effects", {"filter": filter_}, timeout)
+
+
+def effect_add(sequence, kind, track, at, position_index, effect, timeout):
+    one_clip(at, position_index)
+    return invoke("effect_add", {"sequence": sequence, "kind": kind, "track": track, "at": at,
+                                 "position_index": position_index, "effect": effect}, timeout)
+
+
+def effect_set(sequence, kind, track, at, position_index, component, component_index, list_, params, timeout):
+    """Set or list the parameters of a clip's component, by display names."""
+    one_clip(at, position_index)
+    if not list_ and not params:
+        raise ValueError("Give params to set or list=true")
+    if params and not component:
+        raise ValueError("Give the component the parameters belong to")
+    for spec in params:
+        if spec.get("keyframes"):
+            if spec.get("value") is not None or spec.get("color"):
+                raise ValueError(f"{spec['name']}: give either a value or keyframes")
+        elif (spec.get("value") is None) == (spec.get("color") is None):
+            raise ValueError(f"{spec['name']}: give exactly one of value or color")
+    args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
+            "component": component, "component_index": component_index, "list": list_, "params": params}
+    return invoke("effect_set", args, timeout)
+
+
+def clip_fit(sequence, track, at, position_index, mode, timeout):
+    one_clip(at, position_index)
+    return invoke("clip_fit", {"sequence": sequence, "track": track, "at": at,
+                               "position_index": position_index, "mode": mode}, timeout)
+
+
 def media_replace(item, path, timeout):
     """Relink a project item to a new file, then confirm through inspect that the project points at it."""
     target = existing(path)
@@ -522,7 +557,24 @@ def mogrt_add(sequence, mogrt, at, video_track, audio_track, duration, text, tim
     return invoke("mogrt_add", args, timeout)
 
 
-def render(tool, sequence, master, preset, range_, replace, timeout):
+def caption_preset(preset, on):
+    """A copy of an .epr preset with DoCaptions set to on."""
+    value = "true" if on else "false"
+    text = Path(preset).read_text(encoding="utf-8")
+    if "<DoCaptions>" in text:
+        text = re.sub(r"<DoCaptions>(true|false)</DoCaptions>", f"<DoCaptions>{value}</DoCaptions>", text)
+    elif "<DoAudio>" in text:
+        text = text.replace("<DoAudio>true</DoAudio>", f"<DoAudio>true</DoAudio>\n\t<DoCaptions>{value}</DoCaptions>", 1)
+    else:
+        raise ValueError(f"Cannot add captions to preset {preset}")
+    folder = Path(__file__).resolve().parents[2] / ".tmp" / "presets"
+    folder.mkdir(parents=True, exist_ok=True)
+    copy = folder / f"{Path(preset).stem} captions.epr"
+    copy.write_text(text, encoding="utf-8")
+    return copy
+
+
+def render(tool, sequence, master, preset, range_, replace, timeout, burn_captions=None):
     """Run export.jsx or encode.jsx; judged by the report, the released file and ffprobe frames."""
     master, preset = absolute(master), Path(resolve_preset("export", preset) if preset else prores_preset())
     if master.exists() and not replace:
@@ -530,6 +582,8 @@ def render(tool, sequence, master, preset, range_, replace, timeout):
     master.parent.mkdir(parents=True, exist_ok=True)
     if master.exists():
         master.unlink()
+    if burn_captions is not None:
+        preset = caption_preset(preset, burn_captions)
     with tempfile.TemporaryDirectory(prefix="premiere-report-") as folder:
         report = Path(folder) / "report.json"
         args = {"sequence": sequence, "master": str(master), "preset": str(preset), "range": range_,
@@ -543,9 +597,9 @@ def render(tool, sequence, master, preset, range_, replace, timeout):
             "expected_frames": expected, "complete": frames == expected, "warnings": result["warnings"]}
 
 
-def export(sequence, master, preset, range_, replace, timeout):
+def export(sequence, master, preset, range_, replace, timeout, burn_captions=None):
     """Export a sequence with an .epr preset."""
-    return render("export", sequence, master, preset, range_, replace, timeout)
+    return render("export", sequence, master, preset, range_, replace, timeout, burn_captions)
 
 
 def encode(sequence, master, preset, range_, replace, timeout):

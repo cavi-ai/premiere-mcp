@@ -15,7 +15,8 @@ from cavi_premiere_mcp import host
 JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
          "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
-         "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions"]
+         "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions", "effects", "effect_add", "effect_set",
+         "clip_fit"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -141,6 +142,32 @@ class RefusalTest(unittest.TestCase):
             self.assertEqual(host.srt_count(srt), 2)
             with self.assertRaisesRegex(ValueError, "Expected a .srt file"):
                 host.captions(None, Path(folder) / "c.vtt", 0, "subtitle", 60)
+
+    def test_effect_parameters_are_checked_before_premiere_is_asked(self):
+        def call(component, params, list_=False, at=None, index=0):
+            return host.effect_set(None, "video", 0, at, index, component, 0, list_, params, 60)
+
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            call("Crop", [{"name": "Left", "value": 1}], at=1.0)
+        with self.assertRaisesRegex(ValueError, "params to set or list=true"):
+            call("Crop", [])
+        with self.assertRaisesRegex(ValueError, "component the parameters belong to"):
+            call(None, [{"name": "Left", "value": 1}])
+        with self.assertRaisesRegex(ValueError, "exactly one of value or color"):
+            call("Crop", [{"name": "Left"}])
+        with self.assertRaisesRegex(ValueError, "either a value or keyframes"):
+            call("Crop", [{"name": "Left", "value": 1, "keyframes": [{"time": 0, "value": 2}]}])
+
+    def test_caption_preset_copies_set_the_captions_flag_in_the_copy_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            on = Path(folder) / "has.epr"
+            on.write_text("<A>\n\t<DoAudio>true</DoAudio>\n\t<DoCaptions>true</DoCaptions>\n</A>")
+            bare = Path(folder) / "bare.epr"
+            bare.write_text("<A>\n\t<DoAudio>true</DoAudio>\n</A>")
+            self.assertIn("<DoCaptions>false</DoCaptions>", host.caption_preset(on, False).read_text())
+            self.assertIn("<DoCaptions>true</DoCaptions>", host.caption_preset(bare, True).read_text())
+            self.assertIn("<DoCaptions>true</DoCaptions>", on.read_text())
+            self.assertNotIn("DoCaptions", bare.read_text())
 
     def test_tracks_need_something_to_do(self):
         with self.assertRaisesRegex(ValueError, "tracks to add or track states"):
