@@ -10,7 +10,8 @@ TOOLS = {"premiere_status", "premiere_script", "premiere_cut", "premiere_project
          "premiere_export", "premiere_transitions", "premiere_presets", "premiere_clip_edit", "premiere_razor",
          "premiere_clip_speed", "premiere_sequence_set", "premiere_tracks", "premiere_frame_export", "premiere_encode",
          "premiere_auto_reframe", "premiere_interchange", "premiere_captions", "premiere_effects",
-         "premiere_effect_add", "premiere_effect_set", "premiere_clip_fit"}
+         "premiere_effect_add", "premiere_effect_set", "premiere_clip_fit", "premiere_items",
+         "premiere_scene_detect"}
 
 
 class ProtocolTest(unittest.IsolatedAsyncioTestCase):
@@ -53,6 +54,8 @@ class ProtocolTest(unittest.IsolatedAsyncioTestCase):
                 ("premiere_effect_set", {"position_index": 0, "list": False}, "params to set or list=true"),
                 ("premiere_effect_add", {"effect": "Crop"}, "exactly one of at, position_index or name"),
                 ("premiere_clip_fit", {}, "exactly one of at, position_index or name"),
+                ("premiere_items", {"item": "a.mov"}, "at least one change"),
+                ("premiere_scene_detect", {}, "exactly one of at, position_index or name"),
                 ("premiere_tracks", {}, "tracks to add or track states"),
                 ("premiere_frame_export", {"times": [1], "folder": "frames"}, "absolute path"),
             ]:

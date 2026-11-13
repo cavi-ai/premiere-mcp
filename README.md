@@ -52,6 +52,8 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_effect_add` | Adds a video or audio effect to a placed clip and returns the clip's components. |
 | `premiere_effect_set` | Sets or lists any component parameter by display names, static or keyframed with linear, hold or bezier interpolation, with colors as `#RRGGBB`. |
 | `premiere_clip_fit` | Sets a video clip's Motion Scale and centers it so the source fits or fills the sequence frame. |
+| `premiere_items` | Renames, moves to a bin, labels, subclips, interprets footage, attaches a proxy to, sets metadata on or deletes (bins) a project item. |
+| `premiere_scene_detect` | Finds hard cuts inside a placed clip from its media and reports them as timeline seconds; can split the clip or add markers there. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
 | `premiere_export` | Exports a sequence (whole, in/out range or work area, optional caption burn-in) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
@@ -104,8 +106,8 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
 - `premiere_interchange` `import_xml` adds the XML's sequence to the project; an imported sequence
   keeps its name, so it can share one with the original.
 - `premiere_captions` counts cues in the `.srt`. The caption track shows in `premiere_frame_export`
-  stills. `premiere_export` `burn_captions` exports from a copy of the preset (written to `.tmp/presets`
-  in the repository) with `DoCaptions` set: an H.264 preset burns the caption into the picture
+  stills. `premiere_export` `burn_captions` exports from a copy of the preset (written to a temporary folder)
+  with `DoCaptions` set: an H.264 preset burns the caption into the picture
   (white text at the bottom in the frame; false removes it), a ProRes preset has no effect.
 - `premiere_mogrt_add` renders the template as placed (Bold Coming Up shows its default text in a
   frame). The built-in templates expose no text parameters, and the `Source Text` property of their
@@ -126,6 +128,19 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
   Scale off.
 - `premiere_clip_fit` computes the scale from the source frame size (a 1280x720 clip in a 640x360
   sequence gets Scale 50 for fit, 50 for fill) because the QE `scaleToFrameSize` flag cannot be set.
+- `premiere_items` takes a media path or a name (bins by name). `subclip` times are source seconds and
+  the subclip lands in the project root; `premiere_inspect` shows it with `clip_duration` (the
+  subclip's length) next to `duration` (the media's), and `label` per item. `interpret` frame_rate 30 on
+  a 25 fps 6 s clip changed its `duration` to 5; field order, pixel aspect and alpha usage read back as
+  set. `proxy` needs a file that matches the clip (a 320x180 ProRes copy with the same audio was
+  accepted; one without audio was refused). `xmp` writes xmpDM text properties (logComment, shotName,
+  ...) and reads them back. Bins can be deleted with their contents; clip items cannot be deleted
+  from a script (`deleteBin` returns true and the item stays).
+- `premiere_scene_detect` reads the clip's source with ffmpeg because `performSceneEditDetectionOnSelection`
+  returned true and changed nothing (ApplyCuts and CreateMarkers, ProRes and H.264 clips, after 20 s). A
+  clip of three 1 s colors placed at 8 s reported cuts at 9.0 and 10.0, and `cuts` split it there.
+- `premiere_export` `burn_captions` and `premiere_encode` check every input before Premiere or Media
+  Encoder is started; preset copies live in a temporary folder for the call.
 - `premiere_tracks` adds stereo audio tracks and appends them after the last track.
 - `premiere_frame_export` writes `<folder>/<prefix>_<n>_<time>s.png` and checks each file and its
   PNG header on disk; a time at or past the sequence end is refused.

@@ -514,6 +514,55 @@ def clip_fit(sequence, track, at, position_index, mode, timeout):
                                "position_index": position_index, "mode": mode}, timeout)
 
 
+def items(item, change, timeout):
+    """Rename, move, label, subclip, interpret, attach a proxy to, set metadata on or delete a project item."""
+    if all(v is None or v is False for v in change.values()):
+        raise ValueError("Give at least one change")
+    if change.get("remove") and any(v is not None and v is not False for k, v in change.items() if k != "remove"):
+        raise ValueError("remove cannot be combined with other changes")
+    if change.get("proxy"):
+        change = {**change, "proxy": {"path": str(existing(change["proxy"]["path"]))}}
+    sub = change.get("subclip")
+    if sub and sub["out_point"] <= sub["in_point"]:
+        raise ValueError("out_point must be after in_point")
+    result = invoke("items", {"item": item_ref(item), **change}, timeout)
+    result.setdefault("item", None)
+    return result
+
+
+def scene_times(media, threshold):
+    """Source times of hard cuts in a movie, from ffmpeg's scene score."""
+    result = run_sync([ffprobe().replace("ffprobe", "ffmpeg"), "-hide_banner", "-i", str(media), "-an", "-vf",
+                       f"select='gt(scene,{threshold})',showinfo", "-f", "null", "-"], 3600)
+    return [float(m) for m in re.findall(r"pts_time:([0-9.]+)", result.stderr)]
+
+
+def scene_detect(sequence, track, at, position_index, threshold, apply, include_audio, timeout):
+    """Cut times inside a placed clip, as timeline seconds; optionally razor or mark them."""
+    one_clip(at, position_index)
+    listed = inspect(sequence, timeout)["sequences"]
+    if sequence is None and len(listed) > 1:
+        raise ValueError("Give the sequence by name")
+    lane = listed[0]["video"][track]
+    clips = lane["clips"]
+    clip = clips[position_index] if position_index is not None else next(
+        (c for c in clips if c["start"] - 0.0005 <= at < c["end"] - 0.0005), None)
+    if clip is None or not clip["media_path"]:
+        raise ValueError("No clip with media at that place")
+    times = [clip["start"] + t - clip["in_point"] for t in scene_times(clip["media_path"], threshold)
+             if clip["in_point"] < t < clip["out_point"]]
+    times = [round(t, 3) for t in times]
+    result = {"clip": clip["name"], "cuts": times, "applied": apply}
+    if times and apply == "cuts":
+        host_razor = razor(sequence, times, "all" if include_audio else "video", None if include_audio else track,
+                           timeout)
+        result["clips_after"] = host_razor["clips_after"]
+    elif times and apply == "markers":
+        result["markers"] = markers_add(sequence, [{"time": t, "name": "cut", "comment": "", "duration": 0}
+                                                    for t in times], None, timeout)["total"]
+    return result
+
+
 def media_replace(item, path, timeout):
     """Relink a project item to a new file, then confirm through inspect that the project points at it."""
     target = existing(path)
@@ -557,8 +606,8 @@ def mogrt_add(sequence, mogrt, at, video_track, audio_track, duration, text, tim
     return invoke("mogrt_add", args, timeout)
 
 
-def caption_preset(preset, on):
-    """A copy of an .epr preset with DoCaptions set to on."""
+def caption_preset(preset, on, folder):
+    """A copy of an .epr preset in `folder` with DoCaptions set to on."""
     value = "true" if on else "false"
     text = Path(preset).read_text(encoding="utf-8")
     if "<DoCaptions>" in text:
@@ -567,24 +616,40 @@ def caption_preset(preset, on):
         text = text.replace("<DoAudio>true</DoAudio>", f"<DoAudio>true</DoAudio>\n\t<DoCaptions>{value}</DoCaptions>", 1)
     else:
         raise ValueError(f"Cannot add captions to preset {preset}")
-    folder = Path(__file__).resolve().parents[2] / ".tmp" / "presets"
-    folder.mkdir(parents=True, exist_ok=True)
-    copy = folder / f"{Path(preset).stem} captions.epr"
+    copy = Path(folder) / f"{Path(preset).stem} captions.epr"
     copy.write_text(text, encoding="utf-8")
     return copy
 
 
+def launch_encoder():
+    """Start Media Encoder when it is not running and give it time to accept jobs."""
+    app = media_encoder()
+    if not running(app):
+        start(app)
+        deadline = time.monotonic() + 120
+        while not running(app) and time.monotonic() < deadline:
+            time.sleep(2)
+        time.sleep(ENCODER_SETTLE)
+
+
 def render(tool, sequence, master, preset, range_, replace, timeout, burn_captions=None):
-    """Run export.jsx or encode.jsx; judged by the report, the released file and ffprobe frames."""
+    """Run export.jsx or encode.jsx; judged by the report, the released file and ffprobe frames.
+
+    Every input is checked before Premiere or Media Encoder is touched.
+    """
+    if range_ not in ("entire", "in_out", "work_area"):
+        raise ValueError(f"range is entire, in_out or work_area: {range_}")
     master, preset = absolute(master), Path(resolve_preset("export", preset) if preset else prores_preset())
     if master.exists() and not replace:
         raise ValueError(f"Already exists (pass replace=true): {master}")
-    master.parent.mkdir(parents=True, exist_ok=True)
-    if master.exists():
-        master.unlink()
-    if burn_captions is not None:
-        preset = caption_preset(preset, burn_captions)
-    with tempfile.TemporaryDirectory(prefix="premiere-report-") as folder:
+    with tempfile.TemporaryDirectory(prefix="premiere-render-") as folder:
+        if burn_captions is not None:
+            preset = caption_preset(preset, burn_captions, folder)
+        master.parent.mkdir(parents=True, exist_ok=True)
+        if master.exists():
+            master.unlink()
+        if tool == "encode":
+            launch_encoder()
         report = Path(folder) / "report.json"
         args = {"sequence": sequence, "master": str(master), "preset": str(preset), "range": range_,
                 "report": str(report)}
@@ -604,13 +669,6 @@ def export(sequence, master, preset, range_, replace, timeout, burn_captions=Non
 
 def encode(sequence, master, preset, range_, replace, timeout):
     """Queue a sequence in Media Encoder and start the batch; the file is the proof."""
-    app = media_encoder()
-    if not running(app):
-        start(app)
-        deadline = time.monotonic() + 120
-        while not running(app) and time.monotonic() < deadline:
-            time.sleep(2)
-        time.sleep(ENCODER_SETTLE)
     return render("encode", sequence, master, preset, range_, replace, timeout)
 
 

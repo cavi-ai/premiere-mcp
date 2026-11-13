@@ -92,6 +92,8 @@ class Item(BaseModel):
     media_path: str | None
     offline: bool | None
     duration: float | None
+    clip_duration: float | None
+    label: int | None
     fps: float | None
     width: int | None
     height: int | None
@@ -275,6 +277,48 @@ class Fit(Result):
     source: dict[str, int]
     sequence_size: dict[str, int]
     scale: float
+
+
+class ItemState(BaseModel):
+    name: str
+    bin: str
+    kind: str
+    label: int
+    xmp: dict[str, str]
+
+
+class Items(Result):
+    item: ItemState | None
+    subclip: dict[str, str] | None = None
+    interpretation: dict[str, Any] | None = None
+    proxy: dict[str, Any] | None = None
+    deleted: str | None = None
+
+
+class Scenes(Result):
+    clip: str
+    cuts: list[float]
+    applied: str
+    clips_after: int | None = None
+    markers: int | None = None
+
+
+class SubClip(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    in_point: Seconds
+    out_point: Seconds
+    hard: bool = False
+
+
+class Interpret(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    frame_rate: Annotated[float, Field(gt=0, le=240)] | None = None
+    pixel_aspect: Annotated[float, Field(gt=0, le=10)] | None = None
+    alpha: Literal["none", "straight", "premultiplied", "ignore"] | None = None
+    invert_alpha: bool | None = None
+    field_order: Literal["default", "progressive", "upper", "lower"] | None = None
+    remove_pulldown: bool | None = None
 
 
 class Keyframe(BaseModel):
@@ -644,6 +688,35 @@ async def premiere_clip_fit(mode: Literal["fit", "fill"] = "fit", track: Track =
     """Set a video clip's Motion Scale and center it so its source fits inside the frame (fit) or covers
     it (fill), whatever its source size."""
     return await asyncio.to_thread(host.clip_fit, sequence, track, at, position_index, mode, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_items(item: str, rename: str | None = None, bin: str | None = None,
+                         label: Annotated[int, Field(ge=0, le=15)] | None = None, subclip: SubClip | None = None,
+                         interpret: Interpret | None = None, proxy: str | None = None,
+                         xmp: dict[str, str] | None = None, remove: bool = False,
+                         timeout: Timeout = 300) -> Items:
+    """Organize a project item (media path or name; bins by name): rename, move to a bin (created when
+    missing), color label 0-15, subclip (source seconds), footage interpretation, attach a proxy file,
+    set xmpDM metadata text (logComment, shotName, scene, ...) or delete a bin. Clip items cannot be deleted
+    from a script."""
+    change = {"rename": rename, "bin": bin, "label": label, "subclip": subclip and subclip.model_dump(),
+              "interpret": interpret and interpret.model_dump(exclude_none=True) or None,
+              "proxy": proxy and {"path": proxy}, "xmp": xmp, "remove": remove}
+    return await asyncio.to_thread(host.items, item, change, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_scene_detect(track: Track = 0, at: Seconds | None = None,
+                                position_index: Annotated[int, Field(ge=0)] | None = None,
+                                threshold: Annotated[float, Field(gt=0, lt=1)] = 0.3,
+                                apply: Literal["report", "cuts", "markers"] = "report", include_audio: bool = False,
+                                sequence: str | None = None, timeout: Timeout = 600) -> Scenes:
+    """Find hard cuts inside a placed video clip from its media (ffmpeg scene score above threshold) and
+    return them as timeline seconds; apply cuts splits the clip there (all tracks with include_audio),
+    apply markers adds a marker per cut."""
+    return await asyncio.to_thread(host.scene_detect, sequence, track, at, position_index, threshold, apply,
+                                   include_audio, timeout)
 
 
 @mcp.tool(annotations=WRITES)

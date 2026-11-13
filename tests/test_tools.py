@@ -16,7 +16,7 @@ JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
          "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
          "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions", "effects", "effect_add", "effect_set",
-         "clip_fit"]
+         "clip_fit", "items"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -158,16 +158,49 @@ class RefusalTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "either a value or keyframes"):
             call("Crop", [{"name": "Left", "value": 1, "keyframes": [{"time": 0, "value": 2}]}])
 
-    def test_caption_preset_copies_set_the_captions_flag_in_the_copy_only(self):
-        with tempfile.TemporaryDirectory() as folder:
+    def test_caption_preset_copies_go_to_the_given_folder_only(self):
+        package = Path(host.__file__).parent
+        listing = sorted(str(p) for p in package.rglob("*") if "__pycache__" not in p.parts)
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as out:
             on = Path(folder) / "has.epr"
             on.write_text("<A>\n\t<DoAudio>true</DoAudio>\n\t<DoCaptions>true</DoCaptions>\n</A>")
             bare = Path(folder) / "bare.epr"
             bare.write_text("<A>\n\t<DoAudio>true</DoAudio>\n</A>")
-            self.assertIn("<DoCaptions>false</DoCaptions>", host.caption_preset(on, False).read_text())
-            self.assertIn("<DoCaptions>true</DoCaptions>", host.caption_preset(bare, True).read_text())
+            off, added = host.caption_preset(on, False, out), host.caption_preset(bare, True, out)
+            self.assertEqual({off.parent, added.parent}, {Path(out)})
+            self.assertIn("<DoCaptions>false</DoCaptions>", off.read_text())
+            self.assertIn("<DoCaptions>true</DoCaptions>", added.read_text())
             self.assertIn("<DoCaptions>true</DoCaptions>", on.read_text())
             self.assertNotIn("DoCaptions", bare.read_text())
+        self.assertEqual(sorted(str(p) for p in package.rglob("*") if "__pycache__" not in p.parts), listing)
+
+    def test_encode_validates_before_media_encoder_is_started(self):
+        started = []
+        self.addCleanup(setattr, host, "start", host.start)
+        host.start = lambda app: started.append(app)
+        with tempfile.TemporaryDirectory() as folder:
+            master = Path(folder) / "m.mov"
+            master.write_text("kept")
+            for args in ((master, None, "in_out", False), (master, None, "bogus", True),
+                         (Path("rel.mov"), None, "entire", True), (Path(folder) / "n.mov", Path(folder) / "p.xml",
+                                                                    "entire", True)):
+                with self.assertRaises(ValueError):
+                    host.encode(None, *args, 60)
+        self.assertEqual(started, [])
+
+    def test_item_changes_are_checked_before_premiere_is_asked(self):
+        with self.assertRaisesRegex(ValueError, "at least one change"):
+            host.items("a.mov", {"rename": None, "remove": False}, 60)
+        with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
+            host.items("a.mov", {"remove": True, "label": 3}, 60)
+        with self.assertRaisesRegex(ValueError, "out_point must be after in_point"):
+            host.items("a.mov", {"subclip": {"name": "s", "in_point": 2, "out_point": 1}}, 60)
+        with self.assertRaisesRegex(ValueError, "No file at"):
+            host.items("a.mov", {"proxy": {"path": "/no/such/proxy.mov"}}, 60)
+
+    def test_scene_detect_needs_one_clip_address(self):
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            host.scene_detect(None, 0, None, None, 0.3, "report", False, 60)
 
     def test_tracks_need_something_to_do(self):
         with self.assertRaisesRegex(ValueError, "tracks to add or track states"):
@@ -208,6 +241,18 @@ class ScriptTest(unittest.TestCase):
                                                                                  "tail.jsx")))
                 result = subprocess.run(["node", "--check", str(script)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, f"{tool}: {result.stderr}")
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is required")
+class SceneTest(unittest.TestCase):
+    def test_hard_cuts_are_found_at_their_source_times(self):
+        with tempfile.TemporaryDirectory() as folder:
+            movie = Path(folder) / "cuts.mov"
+            colors = [f"color=c={c}:s=160x90:r=25:d=1" for c in ("red", "blue", "green")]
+            subprocess.run(["ffmpeg", "-loglevel", "error", *sum((["-f", "lavfi", "-i", c] for c in colors), []),
+                            "-filter_complex", "[0][1][2]concat=n=3:v=1:a=0", str(movie)], check=True)
+            self.assertEqual([round(t, 2) for t in host.scene_times(movie, 0.3)], [1.0, 2.0])
+            self.assertEqual(host.scene_times(movie, 0.99), [])
 
 
 class StillTest(unittest.TestCase):
