@@ -15,7 +15,7 @@ from cavi_premiere_mcp import host
 JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
          "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
-         "sequence_set", "tracks", "frame_export"]
+         "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -107,6 +107,40 @@ class RefusalTest(unittest.TestCase):
             host.sequence_set(None, {"settings": None, "remove": False}, 60)
         with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
             host.sequence_set(None, {"remove": True, "new_name": "x"}, 60)
+
+    def test_reframe_ratio_is_width_colon_height(self):
+        for ratio in ("9x16", "0:16", "9:"):
+            with self.assertRaisesRegex(ValueError, "width:height"):
+                host.auto_reframe(None, ratio, "default", None, False, 60)
+
+    def test_interchange_keeps_an_existing_file_and_imports_only_xml(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "a.aaf"
+            target.write_text("kept")
+            with self.assertRaisesRegex(ValueError, "pass replace=true"):
+                host.interchange(None, "aaf", target, False, 48000, 16, 60)
+            self.assertEqual(target.read_text(), "kept")
+            with self.assertRaisesRegex(ValueError, "Expected a .xml file"):
+                host.interchange(None, "import_xml", target, False, 48000, 16, 60)
+            with self.assertRaisesRegex(ValueError, "Expected a .omf file"):
+                host.interchange(None, "omf", Path(folder) / "a.aaf", True, 48000, 16, 60)
+
+    def test_encode_keeps_an_existing_master(self):
+        with tempfile.TemporaryDirectory() as folder:
+            master, preset = Path(folder) / "m.mov", Path(folder) / "p.epr"
+            master.write_text("kept")
+            preset.write_text("")
+            with self.assertRaisesRegex(ValueError, "pass replace=true"):
+                host.render("encode", None, master, preset, "in_out", False, 60)
+            self.assertEqual(master.read_text(), "kept")
+
+    def test_captions_need_an_srt_and_are_counted_from_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            srt = Path(folder) / "c.srt"
+            srt.write_text("1\r\n00:00:00,500 --> 00:00:02,500\r\nOne\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nTwo\r\n")
+            self.assertEqual(host.srt_count(srt), 2)
+            with self.assertRaisesRegex(ValueError, "Expected a .srt file"):
+                host.captions(None, Path(folder) / "c.vtt", 0, "subtitle", 60)
 
     def test_tracks_need_something_to_do(self):
         with self.assertRaisesRegex(ValueError, "tracks to add or track states"):

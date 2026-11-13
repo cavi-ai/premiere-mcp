@@ -1,6 +1,6 @@
 // Edit a placed clip: trim, move, enable, rename, link, unlink, remove. Input: {sequence, kind, track,
 // at | position_index | name, trim_start, trim_end, move_to, to_track, enabled, new_name, link_with:
-// {kind, track, position_index}, unlink, remove (ripple|lift)}. Seconds. Applied in that order.
+// {kind, track, position_index}, unlink, remove (ripple|lift), keep_linked}. Seconds. Applied in that order.
 function timeAt(seconds) {
     var t = new Time();
     t.ticks = String(Math.round(seconds * TICKS));
@@ -58,7 +58,7 @@ function select(sequence, clips) {
 function run(A, report) {
     var sequence = findSequence(A.sequence), kind = A.kind, index = A.track, clip = laneClip(sequence, kind, index, A),
         start = secs(clip.start), end = secs(clip.end), begin = secs(clip.inPoint), stop = secs(clip.outPoint),
-        ratio = (end - start) / (stop - begin), ns, ne, other, was, lane, source, later, gap, group, i;
+        ratio = (end - start) / (stop - begin), ns, ne, other, was, lane, source, later, gap, group, doomed, key, i;
     report.sequence = sequence.name;
     if (given(A.trim_start) || given(A.trim_end)) {
         ns = given(A.trim_start) ? A.trim_start : start;
@@ -136,20 +136,45 @@ function run(A, report) {
         }
     }
     if (A.remove) {
-        report.removed = {name: clip.name, start: secs(clip.start), end: secs(clip.end), mode: A.remove};
-        later = [];
-        each(track(sequence, kind, index).clips, function (candidate) {
-            if (secs(candidate.start) >= secs(clip.end) - 0.0005) {
-                later.push(candidate);
-            }
-        });
+        report.removed = {name: clip.name, start: secs(clip.start), end: secs(clip.end), mode: A.remove, partners: 0};
+        doomed = {};
+        doomed[clip.nodeId] = clip;
+        if (!A.keep_linked && linkedCount(clip)) {
+            each(clip.getLinkedItems(), function (member) {
+                doomed[member.nodeId] = member;
+            });
+        }
         gap = secs(clip.end) - secs(clip.start);
-        clip.remove(false, false);
-        // The ripple of remove() leaves the gap open, so the later clips of the track are moved left.
+        later = [];
+        // Premiere's ripple delete shifts the later clips of every unlocked track.
         if (A.remove === "ripple") {
-            for (i = 0; i < later.length; i++) {
-                later[i].move(timeAt(-gap));
+            for (group = 0; group < 2; group++) {
+                each(group ? sequence.audioTracks : sequence.videoTracks, function (lane, laneIndex) {
+                    if (lane.isLocked()) {
+                        return;
+                    }
+                    each(lane.clips, function (candidate) {
+                        if (!doomed[candidate.nodeId] && secs(candidate.start) >= secs(clip.end) - 0.0005) {
+                            later.push({kind: group ? "audio" : "video", lane: laneIndex, id: candidate.nodeId});
+                        }
+                    });
+                });
             }
+        }
+        for (key in doomed) {
+            if (doomed.hasOwnProperty(key)) {
+                doomed[key].remove(false, false);
+                report.removed.partners += 1;
+            }
+        }
+        report.removed.partners -= 1;
+        // remove() leaves the gap open, so the later clips are moved left.
+        for (i = 0; i < later.length; i++) {
+            each(track(sequence, later[i].kind, later[i].lane).clips, function (candidate) {
+                if (candidate.nodeId === later[i].id) {
+                    candidate.move(timeAt(-gap));
+                }
+            });
         }
         return;
     }

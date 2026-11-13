@@ -217,6 +217,25 @@ class Export(Result):
     warnings: list[str]
 
 
+class Reframed(Result):
+    source: str
+    sequence: dict[str, Any]
+
+
+class Interchange(Result):
+    action: str
+    path: str
+    size: int
+    sequence: str | None = None
+    imported: list[str] | None = None
+
+
+class Captions(Result):
+    sequence: str
+    item: str
+    captions: int
+
+
 class Keyframe(BaseModel):
     model_config = ConfigDict(extra="forbid")
     time: Seconds
@@ -260,6 +279,7 @@ class Removed(BaseModel):
     start: float
     end: float
     mode: str
+    partners: int = 0
 
 
 class ClipEdit(Result):
@@ -476,15 +496,17 @@ async def premiere_clip_edit(kind: Kind = "video", track: Track = 0, at: Seconds
                              move_to: Seconds | None = None, to_track: Track | None = None,
                              enabled: bool | None = None, new_name: str | None = None,
                              link_with: LinkRef | None = None, unlink: bool = False,
-                             remove: Literal["ripple", "lift"] | None = None, sequence: str | None = None,
+                             remove: Literal["ripple", "lift"] | None = None, keep_linked: bool = False,
+                             sequence: str | None = None,
                              timeout: Timeout = 300) -> ClipEdit:
     """Edit the placed clip at time `at`, clip index position_index or clip name on a track. trim_start and
     trim_end are new timeline times (the source in/out follow), move_to is the new start time and to_track
     another track, enabled/new_name set the state and name, link_with links it to another clip, unlink
-    unlinks it, remove deletes it (ripple closes the gap, lift leaves it). remove stands alone."""
+    unlinks it, remove deletes it and its linked clips unless keep_linked (ripple shifts the later clips of
+    every unlocked track left, lift leaves the gap). remove stands alone."""
     edit = {"trim_start": trim_start, "trim_end": trim_end, "move_to": move_to, "to_track": to_track,
             "enabled": enabled, "new_name": new_name, "link_with": link_with and link_with.model_dump(),
-            "unlink": unlink or None, "remove": remove}
+            "unlink": unlink or None, "remove": remove, "keep_linked": keep_linked or None}
     return await asyncio.to_thread(host.clip_edit, sequence, kind, track, at, position_index, name, edit, timeout)
 
 
@@ -585,13 +607,55 @@ async def premiere_mogrt_add(mogrt: str, at: Seconds, video_track: Track = 1, au
                                    text or {}, timeout)
 
 
+Range = Literal["entire", "in_out", "work_area"]
+
+
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_export(master: str, preset: str | None = None, work_area: Literal["entire", "in_out"] = "entire",
+async def premiere_export(master: str, preset: str | None = None, range: Range = "entire",
                           replace: bool = False, sequence: str | None = None, timeout: Timeout = 1800) -> Export:
     """Export a sequence through exportAsMediaDirect with a preset: an absolute .epr path or a name
-    premiere_presets lists (format/name when the name is not unique, e.g. H264/...); default ProRes 422 HQ. Completion is judged by the
+    premiere_presets lists (format/name when the name is not unique, e.g. H264/...); default ProRes 422 HQ.
+    range is the whole sequence, its in/out points or its work area. Completion is judged by the
     report file, the output released by every process and the ffprobe frame count, not the relay's answer."""
-    return await asyncio.to_thread(host.export, sequence, master, preset, work_area, replace, timeout)
+    return await asyncio.to_thread(host.export, sequence, master, preset, range, replace, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_encode(master: str, preset: str | None = None, range: Range = "entire",
+                          replace: bool = False, sequence: str | None = None, timeout: Timeout = 1800) -> Export:
+    """Queue a sequence in Adobe Media Encoder (started when needed) with a preset (an absolute .epr path or
+    a name premiere_presets lists) and start the batch. Premiere stays free; completion is judged by the
+    output file, no process holding it open and the ffprobe frame count."""
+    return await asyncio.to_thread(host.encode, sequence, master, preset, range, replace, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_auto_reframe(ratio: str, motion: Literal["slower", "default", "faster"] = "default",
+                                name: str | None = None, nest: bool = False, sequence: str | None = None,
+                                timeout: Timeout = 600) -> Reframed:
+    """New sequence at another aspect ratio (width:height, such as 9:16, 1:1 or 4:5) from Auto Reframe,
+    with the motion preset; nest puts the clips in nested sequences. Returns the new sequence."""
+    return await asyncio.to_thread(host.auto_reframe, sequence, ratio, motion, name, nest, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_interchange(action: Literal["xml", "aaf", "omf", "import_xml"], path: str,
+                               replace: bool = False, audio_rate: Annotated[int, Field(ge=8000, le=192000)] = 48000,
+                               bits: Literal[16, 24] = 16, sequence: str | None = None,
+                               timeout: Timeout = 600) -> Interchange:
+    """Export a sequence as FCP XML (xml), AAF or OMF to an absolute path, or import an FCP XML
+    (import_xml) into the project; the file or the new sequence is checked. audio_rate and bits
+    are for AAF and OMF."""
+    return await asyncio.to_thread(host.interchange, sequence, action, path, replace, audio_rate, bits, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_captions(file: str, start: Seconds = 0,
+                            format: Literal["subtitle", "608", "708", "teletext", "op42", "op47", "open_ebu"] = "subtitle",
+                            sequence: str | None = None, timeout: Timeout = 300) -> Captions:
+    """Import an .srt and create a caption track on the sequence from `start` seconds. Returns the caption
+    count read from the file. Captions appear in premiere_frame_export stills."""
+    return await asyncio.to_thread(host.captions, sequence, file, start, format, timeout)
 
 
 def main():

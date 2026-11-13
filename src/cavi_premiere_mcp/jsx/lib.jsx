@@ -240,3 +240,20 @@ function qeItem(sequence, kind, index, clip) {
     }
     fail("QE has no item for the clip");
 }
+
+// Seconds covered by an export range: the whole sequence, its in/out points or its work area.
+function rangeSpan(sequence, range) {
+    var from, to;
+    if (range === "in_out") {
+        from = sequence.getInPointAsTime();
+        to = sequence.getOutPointAsTime();
+        if (Number(from.ticks) < 0 || Number(to.ticks) < 0) {
+            fail("The sequence has no in and out points");
+        }
+        return secs(to) - secs(from);
+    }
+    if (range === "work_area") {
+        return Number(sequence.getWorkAreaOutPoint()) - Number(sequence.getWorkAreaInPoint());
+    }
+    return endSeconds(sequence);
+}

@@ -14,6 +14,7 @@ from cavi_mcp_core.proc import diagnostics, run_sync
 JSX = Path(__file__).with_name("jsx")
 CUT = JSX / "cut.jsx"
 READY_TIMEOUT = 300
+ENCODER_SETTLE = 40
 PRESET = "*.app/Contents/MediaIO/systempresets/3F3F3F3F_4D6F6F56/Apple ProRes 422 HQ.epr"
 TRANSITIONS = {"cross_dissolve": "Cross Dissolve", "film_dissolve": "Film Dissolve",
                "dip_to_white": "Dip to White", "dip_to_black": "Dip to Black"}
@@ -36,6 +37,10 @@ def premiere():
 
 def photoshop():
     return newest("Adobe Photoshop 20*/Adobe Photoshop 20*.app")
+
+
+def media_encoder():
+    return newest("Adobe Media Encoder 20*/Adobe Media Encoder 20*.app")
 
 
 def prores_preset():
@@ -408,7 +413,7 @@ def one_clip(at, position_index, name=None):
 def clip_edit(sequence, kind, track, at, position_index, name, edit, timeout):
     """Trim, move, enable, rename, link, unlink or remove one placed clip."""
     one_clip(at, position_index, name)
-    if edit.get("remove") and any(v is not None and k != "remove" for k, v in edit.items()):
+    if edit.get("remove") and any(v is not None and k not in ("remove", "keep_linked") for k, v in edit.items()):
         raise ValueError("remove cannot be combined with other edits")
     if all(v is None for v in edit.values()):
         raise ValueError("Give at least one edit")
@@ -517,8 +522,8 @@ def mogrt_add(sequence, mogrt, at, video_track, audio_track, duration, text, tim
     return invoke("mogrt_add", args, timeout)
 
 
-def export(sequence, master, preset, work_area, replace, timeout):
-    """Export a sequence with an .epr preset; judged by the report, the released file and ffprobe frames."""
+def render(tool, sequence, master, preset, range_, replace, timeout):
+    """Run export.jsx or encode.jsx; judged by the report, the released file and ffprobe frames."""
     master, preset = absolute(master), Path(resolve_preset("export", preset) if preset else prores_preset())
     if master.exists() and not replace:
         raise ValueError(f"Already exists (pass replace=true): {master}")
@@ -527,13 +532,87 @@ def export(sequence, master, preset, work_area, replace, timeout):
         master.unlink()
     with tempfile.TemporaryDirectory(prefix="premiere-report-") as folder:
         report = Path(folder) / "report.json"
-        args = {"sequence": sequence, "master": str(master), "preset": str(preset), "work_area": work_area,
+        args = {"sequence": sequence, "master": str(master), "preset": str(preset), "range": range_,
                 "report": str(report)}
         body = (f"var CAVI_ARGS = {json.dumps(args)};\n"
-                + "\n".join((JSX / name).read_text() for name in ("lib.jsx", "export.jsx", "tail.jsx")))
+                + "\n".join((JSX / name).read_text() for name in ("lib.jsx", f"{tool}.jsx", "tail.jsx")))
         result = finish(body, report, master, timeout)
     frames = int(probe(master, "nb_frames"))
-    expected = round(result["sequence_end"] * result["fps"]) if work_area == "entire" else None
+    expected = round(result["span"] * result["fps"])
     return {"sequence": result["sequence"], "master": str(master), "fps": result["fps"], "frames": frames,
-            "expected_frames": expected, "complete": expected is None or frames == expected,
-            "warnings": result["warnings"]}
+            "expected_frames": expected, "complete": frames == expected, "warnings": result["warnings"]}
+
+
+def export(sequence, master, preset, range_, replace, timeout):
+    """Export a sequence with an .epr preset."""
+    return render("export", sequence, master, preset, range_, replace, timeout)
+
+
+def encode(sequence, master, preset, range_, replace, timeout):
+    """Queue a sequence in Media Encoder and start the batch; the file is the proof."""
+    app = media_encoder()
+    if not running(app):
+        start(app)
+        deadline = time.monotonic() + 120
+        while not running(app) and time.monotonic() < deadline:
+            time.sleep(2)
+        time.sleep(ENCODER_SETTLE)
+    return render("encode", sequence, master, preset, range_, replace, timeout)
+
+
+def auto_reframe(sequence, ratio, motion, name, nest, timeout):
+    """A new sequence at another aspect ratio, given as "9:16"."""
+    try:
+        numerator, denominator = (int(part) for part in ratio.split(":"))
+    except ValueError:
+        raise ValueError(f"Give the ratio as width:height, such as 9:16: {ratio}") from None
+    if numerator < 1 or denominator < 1:
+        raise ValueError(f"Give the ratio as width:height, such as 9:16: {ratio}")
+    args = {"sequence": sequence, "numerator": numerator, "denominator": denominator, "motion": motion,
+            "name": name or f"{ratio.replace(':', 'x')}", "nest": nest}
+    return invoke("auto_reframe", args, timeout)
+
+
+def interchange(sequence, action, path, replace, audio_rate, bits, timeout):
+    """Export a sequence as FCP XML, AAF or OMF, or import an FCP XML; the file or the new sequence is checked."""
+    suffix = {"xml": ".xml", "aaf": ".aaf", "omf": ".omf", "import_xml": ".xml"}[action]
+    if action == "import_xml":
+        target = existing(path, suffix)
+    else:
+        target = absolute(path, suffix)
+        if target.exists() and not replace:
+            raise ValueError(f"Already exists (pass replace=true): {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            target.unlink()
+    result = invoke("interchange", {"sequence": sequence, "action": action, "path": str(target),
+                                    "audio_rate": audio_rate, "bits": bits}, timeout)
+    if action == "import_xml":
+        added = [n for n in result["sequences_after"] if n not in result["sequences_before"]]
+        result["imported"] = added or result["sequences_after"][len(result["sequences_before"]):]
+        if len(result["sequences_after"]) <= len(result["sequences_before"]):
+            raise RuntimeError(f"Premiere imported no sequence from {target}")
+        return {"action": action, "path": str(target), "size": target.stat().st_size,
+                "imported": result["imported"], "warnings": result["warnings"]}
+    if not target.is_file() or target.stat().st_size == 0:
+        raise RuntimeError(f"Premiere wrote no {action} file at {target}")
+    return {"action": action, "path": str(target), "size": target.stat().st_size,
+            "sequence": result["sequence"], "warnings": result["warnings"]}
+
+
+def srt_count(path):
+    """The number of cues in an .srt file."""
+    text = Path(path).read_text(encoding="utf-8-sig").replace("\r\n", "\n")
+    return len([block for block in text.split("\n\n") if "-->" in block])
+
+
+def captions(sequence, file, start, format_, timeout):
+    """A caption track from an .srt file; the caption count is read from the file."""
+    source = existing(file, ".srt")
+    count = srt_count(source)
+    result = invoke("captions", {"sequence": sequence, "file": str(source), "start": start, "format": format_},
+                    timeout)
+    result["captions"] = count
+    return result
+
+

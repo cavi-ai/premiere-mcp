@@ -8,7 +8,8 @@ TOOLS = {"premiere_status", "premiere_script", "premiere_cut", "premiere_project
          "premiere_import", "premiere_sequence_new", "premiere_clip_place", "premiere_clip_props",
          "premiere_transition_add", "premiere_media_replace", "premiere_markers_add", "premiere_mogrt_add",
          "premiere_export", "premiere_transitions", "premiere_presets", "premiere_clip_edit", "premiere_razor",
-         "premiere_clip_speed", "premiere_sequence_set", "premiere_tracks", "premiere_frame_export"}
+         "premiere_clip_speed", "premiere_sequence_set", "premiere_tracks", "premiere_frame_export", "premiere_encode",
+         "premiere_auto_reframe", "premiere_interchange", "premiere_captions"}
 
 
 class ProtocolTest(unittest.IsolatedAsyncioTestCase):
@@ -44,6 +45,10 @@ class ProtocolTest(unittest.IsolatedAsyncioTestCase):
                 ("premiere_clip_edit", {"position_index": 0}, "at least one edit"),
                 ("premiere_clip_speed", {"position_index": 0}, "exactly one of speed or duration"),
                 ("premiere_sequence_set", {}, "at least one change"),
+                ("premiere_auto_reframe", {"ratio": "square"}, "width:height"),
+                ("premiere_interchange", {"action": "aaf", "path": "a.aaf"}, "absolute path"),
+                ("premiere_encode", {"master": "m.mov"}, "absolute path"),
+                ("premiere_captions", {"file": "c.srt"}, "absolute path"),
                 ("premiere_tracks", {}, "tracks to add or track states"),
                 ("premiere_frame_export", {"times": [1], "folder": "frames"}, "absolute path"),
             ]:

@@ -44,8 +44,12 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_sequence_set` | Sets frame size, frame rate and audio rate, in/out points; nests clips into a new sequence, duplicates, renames or deletes a sequence. |
 | `premiere_tracks` | Adds video and audio tracks, sets mute, lock and target per track, and returns the counts and every track's state. |
 | `premiere_frame_export` | Exports PNG stills of a sequence at given times and returns their paths and sizes. |
+| `premiere_auto_reframe` | Makes a new sequence at another aspect ratio (9:16, 1:1, 4:5, ...) with Auto Reframe, a motion preset and the nest option. |
+| `premiere_encode` | Queues a sequence in Adobe Media Encoder with a preset and a range, starts the batch and judges the file. |
+| `premiere_interchange` | Exports a sequence as FCP XML, AAF or OMF, or imports an FCP XML into the project. |
+| `premiere_captions` | Imports an `.srt` and creates a caption track on a sequence. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
-| `premiere_export` | Exports a sequence with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
+| `premiere_export` | Exports a sequence (whole, in/out range or work area) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
 Paths are absolute. Photoshop and Premiere Pro are opened in the background (`open -g -a`) when
 they are not running. Times are seconds; tracks are 0-based (`track` 0 is V1 or A1); `sequence`
@@ -70,7 +74,9 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
   templates built in After Effects. The native Essential Graphics titles that ship with Premiere
   (`Basic Title`, `Basic Lower Third`) expose none; a request for text on one is refused.
   `video_track` must be an existing track. The text is confirmed by reading the parameter back.
-- `premiere_clip_edit` addresses a clip by `at`, `position_index` or `name`. `trim_start` and `trim_end`
+- `premiere_clip_edit` `remove` takes the clip's linked clips with it unless `keep_linked`, and
+  `ripple` shifts the later clips of every unlocked track left by the clip's length.
+  `premiere_clip_edit` addresses a clip by `at`, `position_index` or `name`. `trim_start` and `trim_end`
   are timeline times and the source in/out follow them; a trim cannot reach past the source.
   `move_to` shifts only the addressed clip, never its audio or video partner. A move to another
   track places the clip again with its source range and its other stream, so it loses its effects and
@@ -84,6 +90,21 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
 - `premiere_sequence_set` nests the listed clips with `createSubsequence`; it copies the clips
   inside the in/out range into a new sequence and leaves the source clips on their track. The work
   area bounds cannot be set from a script; in/out points can.
+- `premiere_export` and `premiere_encode` take `range` entire, in_out or work_area and compare the
+  `ffprobe` frame count with the range's length. The work area cannot be changed from a script, so
+  `work_area` is the whole sequence unless it was set in the UI.
+- `premiere_encode` starts Media Encoder when it is not running and waits for it before queueing; the
+  call returns when the output file exists, is closed and has the expected frames.
+- `premiere_auto_reframe` keeps the source height and narrows the width (9:16 from 640x360 gives
+  202x360); the new sequence is named by `name`.
+- `premiere_interchange` `import_xml` adds the XML's sequence to the project; an imported sequence
+  keeps its name, so it can share one with the original.
+- `premiere_captions` counts cues in the `.srt`. The caption track shows in `premiere_frame_export`
+  stills; a ProRes export through `premiere_export` does not burn it in.
+- `premiere_mogrt_add` renders the template as placed (Bold Coming Up shows its default text in a
+  frame). The built-in templates expose no text parameters, and the `Source Text` property of their
+  `Text` component takes an encoded value: a plain string replaces the text with a broken render.
+  Setting text is verified only through the template's exposed parameters.
 - `premiere_tracks` adds stereo audio tracks and appends them after the last track.
 - `premiere_frame_export` writes `<folder>/<prefix>_<n>_<time>s.png` and checks each file and its
   PNG header on disk; a time at or past the sequence end is refused.
@@ -179,6 +200,12 @@ Measured with Premiere Pro 2026 and Photoshop 2026 on macOS.
 17. `Sequence.setSettings` accepts `videoFrameWidth`, `videoFrameHeight`, `previewFrameWidth`,
     `previewFrameHeight`, `videoFrameRate` and `audioSampleRate` as `Time` objects in ticks
     (`254016000000` per second divided by the rate) and applies them to a sequence that has clips.
+18. `Sequence.exportAsFinalCutProXML(path, 1)`, `Project.exportAAF` and `Project.exportOMF` write their
+    files synchronously; OMF also writes `<name>omfLog.txt` beside it. `importFiles` on an FCP XML adds
+    its sequence. `autoReframeSequence(num, den, preset, name, nest)` returns the new sequence.
+19. `app.encoder.encodeSequence(sequence, path, preset, range, 1)` returns a job id and
+    `startBatch()` runs it; right after Media Encoder launches the job is not accepted, so the tool
+    waits for the launch. A 4 s ProRes in/out job finished in about 25 s.
 
 ## Development
 
