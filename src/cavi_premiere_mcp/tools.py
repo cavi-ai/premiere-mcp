@@ -7,7 +7,19 @@ from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES
 from pydantic import Field
 
 from . import host
-from .app import Kind, Range, Seconds, Timeout, Track, mcp
+from .app import (
+    ClipAt,
+    ClipIndex,
+    ClipKind,
+    ClipTrack,
+    Kind,
+    Range,
+    Seconds,
+    SequenceName,
+    Timeout,
+    Track,
+    mcp,
+)
 from .models import (
     Added,
     BeatGrid,
@@ -70,16 +82,24 @@ async def premiere_bridge_install() -> BridgeInstall:
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_script(script: str, args: dict[str, Any] | None = None, report: str | None = None,
-                          timeout: Timeout = 1800) -> Script:
+async def premiere_script(
+        script: Annotated[str, Field(description="Absolute path of the .jsx to run.")],
+        args: Annotated[dict[str, Any] | None, Field(description="Values the script reads as CAVI_ARGS.")] = None,
+        report: Annotated[str | None, Field(description="Absolute .json path the script writes as CAVI_REPORT.")] = None,
+        timeout: Timeout = 1800) -> Script:
     """Run a .jsx in Premiere with globals CAVI_ARGS and CAVI_REPORT (a .json path it writes). A script that
     throws is a tool error; its last value is the answer."""
     return await asyncio.to_thread(host.run_script, script, args or {}, report, timeout)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_cut(project: str, master: str, clips: Annotated[list[Clip], Field(min_length=1)],
-                       audio: str | None = None, replace: bool = False, timeout: Timeout = 1800) -> Cut:
+async def premiere_cut(
+        project: Annotated[str, Field(description="Absolute path of the new .prproj.")],
+        master: Annotated[str, Field(description="Absolute path of the exported .mov.")],
+        clips: Annotated[list[Clip], Field(min_length=1, description="Clips placed on V1 in timeline order.")],
+        audio: Annotated[str | None, Field(description="Absolute path of an audio file placed on A1 from 0.")] = None,
+        replace: Annotated[bool, Field(description="Delete an existing project, master and report first.")] = False,
+        timeout: Timeout = 1800) -> Cut:
     """New .prproj with clips (seconds) on V1, optional audio from 0 on A1; exports a ProRes 422 HQ .mov.
 
     Transitions go at the start of their clip. replace deletes an existing project, master and report.
@@ -89,18 +109,25 @@ async def premiere_cut(project: str, master: str, clips: Annotated[list[Clip], F
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_project(action: Literal["open", "new", "save", "close"], path: str | None = None,
-                           replace: bool = False, save: bool = False, close_others: bool = False,
-                           timeout: Timeout = 300) -> Project:
-    """Open, create, save or close a .prproj. new refuses an existing path unless replace; close saves only
-    when save. close_others closes every other open project unsaved after open or new; open is the count."""
+async def premiere_project(
+        action: Annotated[Literal["open", "new", "save", "close"], Field(description="What to do with the project.")],
+        path: Annotated[str | None, Field(description="Absolute .prproj path; required for open and new.")] = None,
+        replace: Annotated[bool, Field(description="Let new overwrite an existing project file.")] = False,
+        save: Annotated[bool, Field(description="Save the project before close.")] = False,
+        close_others: Annotated[bool, Field(description="After open or new, close every other open project "
+                                                        "without saving.")] = False,
+        timeout: Timeout = 300) -> Project:
+    """Open, create, save or close a .prproj. The result's open is the number of open projects."""
     return await asyncio.to_thread(host.project, action, path, replace, save, close_others, timeout)
 
 
 @mcp.tool(annotations=READ_ONLY)
-async def premiere_inspect(sequence: str | None = None, timeout: Timeout = 300) -> Inspect:
+async def premiere_inspect(
+        sequence: Annotated[str | None, Field(description="Report only this sequence; every sequence when "
+                                                          "omitted.")] = None,
+        timeout: Timeout = 300) -> Inspect:
     """Bins, project items (media path, offline, duration, fps, size), sequences with each track's clips,
-    transitions and markers, all in seconds. sequence limits it to one sequence."""
+    transitions and markers, all in seconds."""
     return await asyncio.to_thread(host.inspect, sequence, timeout)
 
 
@@ -117,41 +144,59 @@ async def premiere_presets() -> Presets:
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_import(files: Annotated[list[str], Field(min_length=1)], bin: str | None = None,
-                          timeout: Timeout = 300) -> Import:
-    """Import files into a bin (created when missing); the project root when bin is empty."""
+async def premiere_import(
+        files: Annotated[list[str], Field(min_length=1, description="Absolute paths of the files to import.")],
+        bin: Annotated[str | None, Field(description="Bin to import into, created when missing; the project "
+                                                     "root when omitted.")] = None,
+        timeout: Timeout = 300) -> Import:
+    """Import files into the project, into a bin when one is named."""
     return await asyncio.to_thread(host.import_files, files, bin, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_sequence_new(name: str, clip: str | None = None, preset: str | None = None,
-                                bin: str | None = None, timeout: Timeout = 300) -> NewSequence:
-    """New empty sequence with the settings of a project item (media path or name) or of a .sqpreset
-    (absolute path, or a name premiere_presets lists such as "HD 1080p 25 fps")."""
+async def premiere_sequence_new(
+        name: Annotated[str, Field(description="Name of the new sequence.")],
+        clip: Annotated[str | None, Field(description="Project item (media path or name) whose settings the "
+                                                      "sequence takes.")] = None,
+        preset: Annotated[str | None, Field(description="Sequence preset: absolute .sqpreset path or a name "
+                                                        "premiere_presets lists.")] = None,
+        bin: Annotated[str | None, Field(description="Bin to put the sequence in.")] = None,
+        timeout: Timeout = 300) -> NewSequence:
+    """New empty sequence with the settings of a project item or of a sequence preset (exactly one)."""
     return await asyncio.to_thread(host.sequence_new, name, clip, preset, bin, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_clip_place(item: str, at: Seconds, kind: Kind = "video", track: Track = 0,
-                              in_point: Seconds | None = None, out_point: Seconds | None = None,
-                              mode: Literal["overwrite", "insert"] = "overwrite", sequence: str | None = None,
-                              timeout: Timeout = 300) -> Placed:
-    """Place a project item (media path or name; a file not yet imported is imported) on a track at a
-    time, with optional source in/out. track is 0-based; sequence defaults to the active one."""
+async def premiere_clip_place(
+        item: Annotated[str, Field(description="Project item to place: media path or name.")],
+        at: Annotated[Seconds, Field(description="Sequence time where the clip starts, in seconds.")],
+        kind: Annotated[Kind, Field(description="Track type to place on.")] = "video",
+        track: Annotated[Track, Field(description="0-based track index; 0 is V1 or A1.")] = 0,
+        in_point: Annotated[Seconds | None, Field(description="Source in point, in seconds.")] = None,
+        out_point: Annotated[Seconds | None, Field(description="Source out point, in seconds.")] = None,
+        mode: Annotated[Literal["overwrite", "insert"], Field(description="overwrite replaces what is there; "
+                                                                          "insert pushes later clips right.")]
+        = "overwrite",
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Placed:
+    """Place a project item on a track at a time; a file not yet imported is imported first."""
     return await asyncio.to_thread(host.clip_place, sequence, item, kind, track, at, in_point, out_point, mode,
                                    timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_clip_props(kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
-                              position_index: int | None = None,
-                              position: tuple[float, float] | None = None, scale: float | None = None,
-                              rotation: float | None = None, opacity: float | None = None,
-                              volume_db: float | None = None, keyframes: list[Keyframe] | None = None,
-                              sequence: str | None = None, timeout: Timeout = 300) -> Props:
-    """Motion position (pixels from the top left), scale (percent), rotation (degrees), Opacity (percent)
-    and audio Volume (dB) on the clip at time `at` or at clip index position_index. keyframes
-    (time in seconds from the clip's start) animate the properties they set and win over the static value."""
+async def premiere_clip_props(
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        position: Annotated[tuple[float, float] | None, Field(description="Motion position in pixels from the "
+                                                                          "top left.")] = None,
+        scale: Annotated[float | None, Field(description="Motion scale in percent.")] = None,
+        rotation: Annotated[float | None, Field(description="Motion rotation in degrees.")] = None,
+        opacity: Annotated[float | None, Field(description="Opacity in percent.")] = None,
+        volume_db: Annotated[float | None, Field(description="Audio volume in dB.")] = None,
+        keyframes: Annotated[list[Keyframe] | None, Field(description="Keyframes, timed in seconds from the "
+                                                                      "clip's start.")] = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Props:
+    """Set Motion, Opacity and audio Volume on a clip. keyframes animate the properties they set and win
+    over the static value."""
     props = {"position": position and list(position), "scale": scale, "rotation": rotation, "opacity": opacity,
              "volume_db": volume_db}
     frames = [{k: (list(v) if isinstance(v, tuple) else v) for k, v in key.model_dump().items() if v is not None}
@@ -161,20 +206,25 @@ async def premiere_clip_props(kind: Kind = "video", track: Track = 0, at: Second
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_clip_edit(kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
-                             position_index: Annotated[int, Field(ge=0)] | None = None, name: str | None = None,
-                             trim_start: Seconds | None = None, trim_end: Seconds | None = None,
-                             move_to: Seconds | None = None, to_track: Track | None = None,
-                             enabled: bool | None = None, new_name: str | None = None,
-                             link_with: LinkRef | None = None, unlink: bool = False,
-                             remove: Literal["ripple", "lift"] | None = None, keep_linked: bool = False,
-                             sequence: str | None = None,
-                             timeout: Timeout = 300) -> ClipEdit:
-    """Edit the placed clip at time `at`, clip index position_index or clip name on a track. trim_start and
-    trim_end are new timeline times (the source in/out follow), move_to is the new start time and to_track
-    another track, enabled/new_name set the state and name, link_with links it to another clip, unlink
-    unlinks it, remove deletes it and its linked clips unless keep_linked (ripple shifts the later clips of
-    every unlocked track left, lift leaves the gap). remove stands alone."""
+async def premiere_clip_edit(
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        name: Annotated[str | None, Field(description="Picks the clip by its name on the track.")] = None,
+        trim_start: Annotated[Seconds | None, Field(description="New timeline start; the source in point "
+                                                                "follows.")] = None,
+        trim_end: Annotated[Seconds | None, Field(description="New timeline end; the source out point "
+                                                              "follows.")] = None,
+        move_to: Annotated[Seconds | None, Field(description="New start time, in seconds.")] = None,
+        to_track: Annotated[Track | None, Field(description="0-based track to move the clip to.")] = None,
+        enabled: Annotated[bool | None, Field(description="Enable or disable the clip.")] = None,
+        new_name: Annotated[str | None, Field(description="New clip name.")] = None,
+        link_with: Annotated[LinkRef | None, Field(description="Another clip to link this one with.")] = None,
+        unlink: Annotated[bool, Field(description="Unlink the clip from its linked clips.")] = False,
+        remove: Annotated[Literal["ripple", "lift"] | None,
+                          Field(description="Delete the clip: ripple closes the gap, lift leaves it.")] = None,
+        keep_linked: Annotated[bool, Field(description="With remove, keep the linked clips.")] = False,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> ClipEdit:
+    """Trim, move, enable, rename, link, unlink or remove a placed clip. remove stands alone and also deletes
+    the linked clips; ripple shifts the later clips of every unlocked track left."""
     edit = {"trim_start": trim_start, "trim_end": trim_end, "move_to": move_to, "to_track": to_track,
             "enabled": enabled, "new_name": new_name, "link_with": link_with and link_with.model_dump(),
             "unlink": unlink or None, "remove": remove, "keep_linked": keep_linked or None}
@@ -182,36 +232,49 @@ async def premiere_clip_edit(kind: Kind = "video", track: Track = 0, at: Seconds
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_razor(times: Annotated[list[Seconds], Field(min_length=1)],
-                         kind: Literal["video", "audio", "all"] = "all", track: Track | None = None,
-                         sequence: str | None = None, timeout: Timeout = 300) -> Razor:
-    """Split clips at each time with the QE razor: every track of `kind`, or one track when `track` is given
-    (then kind is video or audio). Times are seconds on the frame grid."""
+async def premiere_razor(
+        times: Annotated[list[Seconds], Field(min_length=1, description="Sequence times to split at, in "
+                                                                        "seconds.")],
+        kind: Annotated[Literal["video", "audio", "all"], Field(description="Track types to split.")] = "all",
+        track: Annotated[Track | None, Field(description="Split only this 0-based track; kind must then be "
+                                                         "video or audio.")] = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Razor:
+    """Split clips at each time with the QE razor, on every track of kind or on one track. Times snap to
+    the frame grid."""
     return await asyncio.to_thread(host.razor, sequence, times, kind, track, timeout)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_clip_speed(kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
-                              position_index: Annotated[int, Field(ge=0)] | None = None,
-                              speed: Annotated[float, Field(gt=0, le=10000)] | None = None,
-                              duration: Annotated[float, Field(gt=0)] | None = None, reverse: bool = False,
-                              maintain_pitch: bool = True, ripple: bool = False, sequence: str | None = None,
-                              timeout: Timeout = 300) -> Speed:
-    """Set a clip's speed in percent, or the timeline duration it should fill in seconds (the source range is
-    kept). Reverse plays it backwards, maintain_pitch keeps audio pitch, ripple moves the later clips.
-    A clip's linked audio is a separate clip: call it again with kind audio."""
+async def premiere_clip_speed(
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        speed: Annotated[Annotated[float, Field(gt=0, le=10000)] | None,
+                         Field(description="Speed in percent; 100 is normal.")] = None,
+        duration: Annotated[Annotated[float, Field(gt=0)] | None,
+                            Field(description="Timeline duration the clip should fill, in seconds.")] = None,
+        reverse: Annotated[bool, Field(description="Play the clip backwards.")] = False,
+        maintain_pitch: Annotated[bool, Field(description="Keep the audio pitch.")] = True,
+        ripple: Annotated[bool, Field(description="Move the later clips with the new length.")] = False,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Speed:
+    """Set a clip's speed or the timeline duration it fills (exactly one; the source range is kept). Linked
+    audio is a separate clip: call again with kind audio."""
     return await asyncio.to_thread(host.clip_speed, sequence, kind, track, at, position_index, speed, duration,
                                    reverse, maintain_pitch, ripple, timeout)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_sequence_set(settings: SequenceSettings | None = None, in_point: Seconds | None = None,
-                                out_point: Seconds | None = None, nest: NestSpec | None = None,
-                                duplicate: str | None = None, new_name: str | None = None, remove: bool = False,
-                                sequence: str | None = None, timeout: Timeout = 300) -> SequenceChange:
-    """Change a sequence: settings (frame size, fps, audio rate), in/out points, nest listed clips into a
-    new sequence (limited to the in/out range), duplicate (the value names the copy, "" keeps Premiere's
-    name), rename, or delete (alone). Applied in that order."""
+async def premiere_sequence_set(
+        settings: Annotated[SequenceSettings | None, Field(description="Frame size, frame rate and audio "
+                                                                       "rate.")] = None,
+        in_point: Annotated[Seconds | None, Field(description="Sequence in point, in seconds.")] = None,
+        out_point: Annotated[Seconds | None, Field(description="Sequence out point, in seconds.")] = None,
+        nest: Annotated[NestSpec | None, Field(description="Clips to nest into a new sequence.")] = None,
+        duplicate: Annotated[str | None, Field(description="Name of a copy of the sequence; \"\" keeps "
+                                                           "Premiere's name.")] = None,
+        new_name: Annotated[str | None, Field(description="New sequence name.")] = None,
+        remove: Annotated[bool, Field(description="Delete the sequence; give no other change.")] = False,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> SequenceChange:
+    """Change a sequence: settings, in/out points, nest clips into a new sequence (within the in/out
+    range), duplicate, rename or delete. Applied in that order."""
     change = {"settings": settings and settings.model_dump(), "in_point": in_point, "out_point": out_point,
               "nest": nest and nest.model_dump(), "duplicate": duplicate, "new_name": new_name,
               "remove": remove}
@@ -219,73 +282,94 @@ async def premiere_sequence_set(settings: SequenceSettings | None = None, in_poi
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_tracks(add_video: Annotated[int, Field(ge=0, le=20)] = 0,
-                          add_audio: Annotated[int, Field(ge=0, le=20)] = 0, tracks: list[TrackSet] | None = None,
-                          sequence: str | None = None, timeout: Timeout = 300) -> Tracks:
-    """Add video and stereo audio tracks after the last one, and set mute, lock and target state per track;
-    returns the counts before and after and every track's state."""
+async def premiere_tracks(
+        add_video: Annotated[int, Field(ge=0, le=20, description="Video tracks to add after the last one.")] = 0,
+        add_audio: Annotated[int, Field(ge=0, le=20, description="Stereo audio tracks to add after the last "
+                                                                 "one.")] = 0,
+        tracks: Annotated[list[TrackSet] | None, Field(description="Mute, lock and target state per "
+                                                                   "track.")] = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Tracks:
+    """Add tracks and set mute, lock and target per track; returns the counts before and after and every
+    track's state."""
     states = [t.model_dump() for t in tracks or []]
     return await asyncio.to_thread(host.tracks, sequence, add_video, add_audio, states, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_frame_export(times: Annotated[list[Seconds], Field(min_length=1, max_length=50)], folder: str,
-                                prefix: str = "frame", sequence: str | None = None,
-                                timeout: Timeout = 300) -> Frames:
-    """Export PNG stills of the sequence at the given seconds into a folder and return their paths and
-    sizes (open them to look at the result). An existing file of the same name is replaced."""
+async def premiere_frame_export(
+        times: Annotated[list[Seconds], Field(min_length=1, max_length=50, description="Sequence times of the "
+                                                                                       "stills, in seconds.")],
+        folder: Annotated[str, Field(description="Absolute path of the folder the PNGs go to.")],
+        prefix: Annotated[str, Field(description="File name prefix; a plain name, no folders.")] = "frame",
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Frames:
+    """Export PNG stills of the sequence and return their paths and sizes (open them to look at the
+    result). A file of the same name is replaced."""
     return await asyncio.to_thread(host.frame_export, sequence, times, folder, prefix, timeout)
 
 
 @mcp.tool(annotations=READ_ONLY)
-async def premiere_effects(filter: str = "", timeout: Timeout = 300) -> Effects:
+async def premiere_effects(
+        filter: Annotated[str, Field(description="List only effects whose name contains this text.")] = "",
+        timeout: Timeout = 300) -> Effects:
     """Video and audio effects Premiere offers (QE names), limited to names containing `filter`."""
     return await asyncio.to_thread(host.effects, filter, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_effect_add(effect: str, kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
-                              position_index: Annotated[int, Field(ge=0)] | None = None,
-                              sequence: str | None = None, timeout: Timeout = 300) -> EffectAdded:
-    """Add a video or audio effect (a name premiere_effects lists) to the clip at `at` or position_index;
-    returns the clip's components with their parameters."""
+async def premiere_effect_add(
+        effect: Annotated[str, Field(description="Effect name, as premiere_effects lists it.")],
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> EffectAdded:
+    """Add a video or audio effect to a clip; returns the clip's components with their parameters."""
     return await asyncio.to_thread(host.effect_add, sequence, kind, track, at, position_index, effect, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_effect_set(component: str | None = None, params: list[Param] | None = None, list: bool = False,
-                              component_index: Annotated[int, Field(ge=0)] = 0, kind: Kind = "video",
-                              track: Track = 0, at: Seconds | None = None,
-                              position_index: Annotated[int, Field(ge=0)] | None = None,
-                              sequence: str | None = None, timeout: Timeout = 300) -> EffectSet:
-    """Set parameters of a clip's component by display names (Motion, Opacity, Lumetri Color, Crop, ...).
-    Each param is a value, a color (#RRGGBB) or keyframes (seconds from the clip's start, with linear,
-    hold or bezier interpolation). `index` picks among parameters that share a name. list=true returns the
-    component's parameters with their values (all components without `component`)."""
+async def premiere_effect_set(
+        component: Annotated[str | None, Field(description="Component display name, such as Motion, Opacity "
+                                                           "or Lumetri Color.")] = None,
+        params: Annotated[list[Param] | None, Field(description="Parameters to set by display name.")] = None,
+        list: Annotated[bool, Field(description="Return the parameters and their values instead of "
+                                                "setting.")] = False,
+        component_index: Annotated[int, Field(ge=0, description="Which of several components with the same "
+                                                                "name, 0-based.")] = 0,
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> EffectSet:
+    """Set or list parameters of a clip's component by display name. A param is a value, a #RRGGBB color or
+    keyframes (seconds from the clip's start; linear, hold or bezier); its index picks among parameters
+    that share a name. list without component lists every component."""
     specs = [p.model_dump(exclude_none=True) for p in params or []]
     return await asyncio.to_thread(host.effect_set, sequence, kind, track, at, position_index, component,
                                    component_index, list, specs, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_clip_fit(mode: Literal["fit", "fill"] = "fit", track: Track = 0, at: Seconds | None = None,
-                            position_index: Annotated[int, Field(ge=0)] | None = None,
-                            sequence: str | None = None, timeout: Timeout = 300) -> Fit:
-    """Set a video clip's Motion Scale and center it so its source fits inside the frame (fit) or covers
-    it (fill), whatever its source size."""
+async def premiere_clip_fit(
+        mode: Annotated[Literal["fit", "fill"], Field(description="fit shows the whole source; fill covers the "
+                                                                  "frame.")] = "fit",
+        track: Annotated[Track, Field(description="0-based video track index of the clip; 0 is V1.")] = 0,
+        at: ClipAt = None, position_index: ClipIndex = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Fit:
+    """Scale and center a video clip so its source fits inside the frame or covers it, whatever its size."""
     return await asyncio.to_thread(host.clip_fit, sequence, track, at, position_index, mode, timeout)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_items(item: str, rename: str | None = None, bin: str | None = None,
-                         label: Annotated[int, Field(ge=0, le=15)] | None = None, subclip: SubClip | None = None,
-                         interpret: Interpret | None = None, proxy: str | None = None,
-                         xmp: dict[str, str] | None = None, remove: bool = False,
-                         timeout: Timeout = 300) -> Items:
-    """Organize a project item (media path or name; bins by name): rename, move to a bin (created when
-    missing), color label 0-15, subclip (source seconds), footage interpretation, attach a proxy file,
-    set xmpDM metadata text (logComment, shotName, scene, ...) or delete a bin. Clip items cannot be deleted
-    from a script."""
+async def premiere_items(
+        item: Annotated[str, Field(description="Project item (media path or name), or a bin by name.")],
+        rename: Annotated[str | None, Field(description="New item name.")] = None,
+        bin: Annotated[str | None, Field(description="Bin to move the item to, created when missing.")] = None,
+        label: Annotated[Annotated[int, Field(ge=0, le=15)] | None,
+                         Field(description="Color label index, 0 to 15.")] = None,
+        subclip: Annotated[SubClip | None, Field(description="Make a subclip from a source range.")] = None,
+        interpret: Annotated[Interpret | None, Field(description="Footage interpretation to set.")] = None,
+        proxy: Annotated[str | None, Field(description="Absolute path of a proxy file to attach.")] = None,
+        xmp: Annotated[dict[str, str] | None, Field(description="xmpDM metadata text by field, such as "
+                                                                "logComment or scene.")] = None,
+        remove: Annotated[bool, Field(description="Delete the bin named by item.")] = False,
+        timeout: Timeout = 300) -> Items:
+    """Organize a project item: rename, move to a bin, color label, subclip, interpretation, proxy or
+    xmpDM metadata, or delete a bin. Clip items cannot be deleted from a script."""
     change = {"rename": rename, "bin": bin, "label": label, "subclip": subclip and subclip.model_dump(),
               "interpret": interpret and interpret.model_dump(exclude_none=True) or None,
               "proxy": proxy and {"path": proxy}, "xmp": xmp, "remove": remove}
@@ -293,106 +377,147 @@ async def premiere_items(item: str, rename: str | None = None, bin: str | None =
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_scene_detect(track: Track = 0, at: Seconds | None = None,
-                                position_index: Annotated[int, Field(ge=0)] | None = None,
-                                threshold: Annotated[float, Field(gt=0, lt=1)] = 0.3,
-                                apply: Literal["report", "cuts", "markers"] = "report", include_audio: bool = False,
-                                sequence: str | None = None, timeout: Timeout = 600) -> Scenes:
-    """Find hard cuts inside a placed video clip from its media (ffmpeg scene score above threshold) and
-    return them as timeline seconds; apply cuts splits the clip there (all tracks with include_audio),
-    apply markers adds a marker per cut."""
+async def premiere_scene_detect(
+        track: Annotated[Track, Field(description="0-based video track index of the clip; 0 is V1.")] = 0,
+        at: ClipAt = None, position_index: ClipIndex = None,
+        threshold: Annotated[float, Field(gt=0, lt=1, description="ffmpeg scene score a cut must exceed.")] = 0.3,
+        apply: Annotated[Literal["report", "cuts", "markers"],
+                         Field(description="report only, split the clip at each cut, or add a marker per "
+                                           "cut.")] = "report",
+        include_audio: Annotated[bool, Field(description="With cuts, split every track, audio "
+                                                         "included.")] = False,
+        sequence: SequenceName = None, timeout: Timeout = 600) -> Scenes:
+    """Find hard cuts inside a placed video clip from its media and return them as timeline seconds;
+    optionally split the clip or add a marker at each."""
     return await asyncio.to_thread(host.scene_detect, sequence, track, at, position_index, threshold, apply,
                                    include_audio, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_transition_add(transition: str = "Cross Dissolve", frames: Annotated[int, Field(ge=1, le=600)] = 12,
-                                  kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
-                                  position_index: int | None = None, edge: Literal["start", "end"] = "start",
-                                  alignment: Annotated[float, Field(ge=0, le=1)] = 0.5,
-                                  single_sided: bool = False, sequence: str | None = None,
-                                  timeout: Timeout = 300) -> Added:
-    """QE transition (a name premiere_transitions lists, or cross_dissolve, film_dissolve, dip_to_black,
-    dip_to_white) at the start or end of the clip at `at` or
-    position_index. alignment 0 starts at the cut, 0.5 centers on it, 1 ends at it."""
+async def premiere_transition_add(
+        transition: Annotated[str, Field(description="Transition name premiere_transitions lists, or an "
+                                                     "alias.")] = "Cross Dissolve",
+        frames: Annotated[int, Field(ge=1, le=600, description="Transition length in frames.")] = 12,
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        edge: Annotated[Literal["start", "end"], Field(description="Which end of the clip.")] = "start",
+        alignment: Annotated[float, Field(ge=0, le=1, description="0 starts at the cut, 0.5 centers on it, 1 "
+                                                                  "ends at it.")] = 0.5,
+        single_sided: Annotated[bool, Field(description="Apply to this clip only, not across the "
+                                                        "cut.")] = False,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Added:
+    """Add a QE transition at the start or end of a clip. Aliases: cross_dissolve, film_dissolve,
+    dip_to_black, dip_to_white."""
     return await asyncio.to_thread(host.transition_add, sequence, kind, track, at, position_index, transition,
                                    frames, edge, alignment, single_sided, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_media_replace(item: str, path: str, timeout: Timeout = 300) -> Replaced:
-    """Point a project item (media path or name) at a new file, or refresh it when the path is unchanged,
-    so sequences show the new media; checks the project through premiere_inspect."""
+async def premiere_media_replace(
+        item: Annotated[str, Field(description="Project item to repoint: media path or name.")],
+        path: Annotated[str, Field(description="Absolute path of the new media; the same path refreshes it.")],
+        timeout: Timeout = 300) -> Replaced:
+    """Point a project item at a new file, or refresh it, so sequences show the new media; the result is
+    checked through premiere_inspect."""
     return await asyncio.to_thread(host.media_replace, item, path, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_markers_add(markers: Annotated[list[NewMarker], Field(max_length=host.MAX_MARKERS)] | None = None,
-                               beat_grid: BeatGrid | None = None,
-                               sequence: str | None = None, timeout: Timeout = 300) -> Markers:
-    """Sequence markers at seconds, and/or one per beat from bpm (named bar.beat, bar starts commented
-    "downbeat") between start and end."""
+async def premiere_markers_add(
+        markers: Annotated[Annotated[list[NewMarker], Field(max_length=host.MAX_MARKERS)] | None,
+                           Field(description="Markers to add, timed in seconds.")] = None,
+        beat_grid: Annotated[BeatGrid | None, Field(description="One marker per beat at a tempo between two "
+                                                                "times.")] = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Markers:
+    """Add sequence markers, a beat grid (named bar.beat; bar starts commented "downbeat") or both."""
     return await asyncio.to_thread(host.markers_add, sequence, [m.model_dump() for m in markers or []],
                                    beat_grid and beat_grid.model_dump(), timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_mogrt_add(mogrt: str, at: Seconds, video_track: Track = 1, audio_track: Track = 0,
-                             duration: Annotated[float, Field(gt=0)] | None = None,
-                             text: dict[str, str] | None = None, sequence: str | None = None,
-                             timeout: Timeout = 300) -> Mogrt:
-    """Import a .mogrt on a video track at a time and set its text parameters by name. Only templates
-    built in After Effects expose text parameters; native Essential Graphics titles do not."""
+async def premiere_mogrt_add(
+        mogrt: Annotated[str, Field(description="Absolute path of the .mogrt.")],
+        at: Annotated[Seconds, Field(description="Sequence time where the graphic starts, in seconds.")],
+        video_track: Annotated[Track, Field(description="0-based video track for the graphic.")] = 1,
+        audio_track: Annotated[Track, Field(description="0-based audio track for its audio.")] = 0,
+        duration: Annotated[Annotated[float, Field(gt=0)] | None,
+                            Field(description="Length on the timeline in seconds; the template's when "
+                                              "omitted.")] = None,
+        text: Annotated[dict[str, str] | None, Field(description="Text parameter values by parameter "
+                                                                 "name.")] = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Mogrt:
+    """Add a .mogrt to the sequence and set its text parameters. Only templates built in After Effects
+    expose text parameters."""
     return await asyncio.to_thread(host.mogrt_add, sequence, mogrt, at, video_track, audio_track, duration,
                                    text or {}, timeout)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_export(master: str, preset: str | None = None, range: Range = "entire",
-                          replace: bool = False, burn_captions: bool | None = None, sequence: str | None = None,
-                          timeout: Timeout = 1800) -> Export:
-    """Export a sequence through exportAsMediaDirect with a preset: an absolute .epr path or a name
-    premiere_presets lists (format/name when the name is not unique, e.g. H264/...); default ProRes 422 HQ.
-    range is the whole sequence, its in/out points or its work area. burn_captions true or false exports from a copy of
-    the preset with its captions setting changed (H.264 presets burn captions in; ProRes presets do not). Completion is judged by the
-    report file, the output released by every process and the ffprobe frame count, not the relay's answer."""
+async def premiere_export(
+        master: Annotated[str, Field(description="Absolute path of the exported file.")],
+        preset: Annotated[str | None, Field(description="Export preset: absolute .epr path or a name "
+                                                        "premiere_presets lists; ProRes 422 HQ when "
+                                                        "omitted.")] = None,
+        range: Annotated[Range, Field(description="Whole sequence, its in/out points or its work "
+                                                  "area.")] = "entire",
+        replace: Annotated[bool, Field(description="Overwrite an existing file.")] = False,
+        burn_captions: Annotated[bool | None, Field(description="Burn captions in or not; the preset's setting "
+                                                                "when omitted.")] = None,
+        sequence: SequenceName = None, timeout: Timeout = 1800) -> Export:
+    """Export a sequence with exportAsMediaDirect. A preset name that is not unique takes format/name.
+    burn_captions exports from a copy of the preset (H.264 burns captions in; ProRes does not). Done means
+    the report, the file released by every process and the ffprobe frame count agree."""
     return await asyncio.to_thread(host.export, sequence, master, preset, range, replace, timeout, burn_captions)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_encode(master: str, preset: str | None = None, range: Range = "entire",
-                          replace: bool = False, sequence: str | None = None, timeout: Timeout = 1800) -> Export:
-    """Queue a sequence in Adobe Media Encoder (started when needed) with a preset (an absolute .epr path or
-    a name premiere_presets lists) and start the batch. Premiere stays free; completion is judged by the
-    output file, no process holding it open and the ffprobe frame count."""
+async def premiere_encode(
+        master: Annotated[str, Field(description="Absolute path of the encoded file.")],
+        preset: Annotated[str | None, Field(description="Export preset: absolute .epr path or a name "
+                                                        "premiere_presets lists.")] = None,
+        range: Annotated[Range, Field(description="Whole sequence, its in/out points or its work "
+                                                  "area.")] = "entire",
+        replace: Annotated[bool, Field(description="Overwrite an existing file.")] = False,
+        sequence: SequenceName = None, timeout: Timeout = 1800) -> Export:
+    """Queue a sequence in Adobe Media Encoder (started when needed) and start the batch; Premiere stays
+    free. Done means the file exists, no process holds it and the ffprobe frame count matches."""
     return await asyncio.to_thread(host.encode, sequence, master, preset, range, replace, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_auto_reframe(ratio: str, motion: Literal["slower", "default", "faster"] = "default",
-                                name: str | None = None, nest: bool = False, sequence: str | None = None,
-                                timeout: Timeout = 600) -> Reframed:
-    """New sequence at another aspect ratio (width:height, such as 9:16, 1:1 or 4:5) from Auto Reframe,
-    with the motion preset; nest puts the clips in nested sequences. Returns the new sequence."""
+async def premiere_auto_reframe(
+        ratio: Annotated[str, Field(description="Target aspect ratio as width:height, such as 9:16.")],
+        motion: Annotated[Literal["slower", "default", "faster"], Field(description="Auto Reframe motion "
+                                                                                    "preset.")] = "default",
+        name: Annotated[str | None, Field(description="Name of the new sequence.")] = None,
+        nest: Annotated[bool, Field(description="Put the clips in nested sequences.")] = False,
+        sequence: SequenceName = None, timeout: Timeout = 600) -> Reframed:
+    """New sequence at another aspect ratio from Auto Reframe; returns the new sequence."""
     return await asyncio.to_thread(host.auto_reframe, sequence, ratio, motion, name, nest, timeout)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_interchange(action: Literal["xml", "aaf", "omf", "import_xml"], path: str,
-                               replace: bool = False, audio_rate: Annotated[int, Field(ge=8000, le=192000)] = 48000,
-                               bits: Literal[16, 24] = 16, sequence: str | None = None,
-                               timeout: Timeout = 600) -> Interchange:
-    """Export a sequence as FCP XML (xml), AAF or OMF to an absolute path, or import an FCP XML
-    (import_xml) into the project; the file or the new sequence is checked. audio_rate and bits
-    are for AAF and OMF."""
+async def premiere_interchange(
+        action: Annotated[Literal["xml", "aaf", "omf", "import_xml"],
+                          Field(description="Export as FCP XML, AAF or OMF, or import an FCP XML.")],
+        path: Annotated[str, Field(description="Absolute path of the file to write or import.")],
+        replace: Annotated[bool, Field(description="Overwrite an existing file.")] = False,
+        audio_rate: Annotated[int, Field(ge=8000, le=192000, description="AAF and OMF audio sample rate in "
+                                                                         "Hz.")] = 48000,
+        bits: Annotated[Literal[16, 24], Field(description="AAF and OMF audio bit depth.")] = 16,
+        sequence: SequenceName = None, timeout: Timeout = 600) -> Interchange:
+    """Export a sequence as FCP XML, AAF or OMF, or import an FCP XML into the project; the file or the
+    new sequence is checked."""
     return await asyncio.to_thread(host.interchange, sequence, action, path, replace, audio_rate, bits, timeout)
 
 
 @mcp.tool(annotations=WRITES)
-async def premiere_captions(file: str, start: Seconds = 0,
-                            format: Literal["subtitle", "608", "708", "teletext", "op42", "op47", "open_ebu"] = "subtitle",
-                            sequence: str | None = None, timeout: Timeout = 300) -> Captions:
-    """Import an .srt and create a caption track on the sequence from `start` seconds. Returns the caption
-    count read from the file. Captions appear in premiere_frame_export stills."""
+async def premiere_captions(
+        file: Annotated[str, Field(description="Absolute path of the .srt.")],
+        start: Annotated[Seconds, Field(description="Sequence time where the captions start, in seconds.")] = 0,
+        format: Annotated[Literal["subtitle", "608", "708", "teletext", "op42", "op47", "open_ebu"],
+                          Field(description="Caption track format.")] = "subtitle",
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Captions:
+    """Import an .srt as a caption track; returns the caption count read from the file. Captions appear in
+    premiere_frame_export stills."""
     return await asyncio.to_thread(host.captions, sequence, file, start, format, timeout)
 
