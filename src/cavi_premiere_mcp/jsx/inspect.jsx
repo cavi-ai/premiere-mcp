@@ -1,10 +1,5 @@
 // Describe the open project: bins, project items, sequences with every track's clips and
 // transitions, and sequence markers. Input: {sequence} (a name; every sequence when empty).
-function field(xml, name) {
-    var found = new RegExp("Column\\.Intrinsic\\." + name + ">([^<]*)<").exec(xml);
-    return found ? found[1] : null;
-}
-
 function seconds(code, fps) {
     var p = String(code).split(/[:;]/);
     return p.length === 4 && fps ? Number(p[0]) * 3600 + Number(p[1]) * 60 + Number(p[2]) + Number(p[3]) / fps : null;
@@ -12,7 +7,8 @@ function seconds(code, fps) {
 
 function itemInfo(child, binPath, sequenceIds) {
     var info = {name: child.name, bin: binPath, kind: isBin(child) ? "bin" : "clip", media_path: null,
-        offline: null, duration: null, fps: null, width: null, height: null}, xml = "", size, rate;
+        offline: null, duration: null, clip_duration: null, label: null, fps: null, width: null, height: null},
+        xml = "", size, rate;
     if (info.kind === "bin") {
         return info;
     }
@@ -21,6 +17,11 @@ function itemInfo(child, binPath, sequenceIds) {
         return info;
     }
     info.media_path = mediaPath(child);
+    try {
+        info.label = Number(child.getColorLabel());
+    } catch (error) {
+        info.label = null;
+    }
     try {
         info.offline = child.isOffline();
     } catch (error) {
@@ -34,6 +35,7 @@ function itemInfo(child, binPath, sequenceIds) {
     rate = parseFloat(field(xml, "MediaTimebase"));
     info.fps = isNaN(rate) || field(xml, "MediaType") !== "Video" ? null : rate;
     info.duration = seconds(field(xml, "MediaDuration"), rate);
+    info.clip_duration = seconds(field(xml, "VideoDuration"), rate);
     size = /(\d+)\s*x\s*(\d+)/.exec(field(xml, "VideoInfo") || "");
     if (size) {
         info.width = Number(size[1]);

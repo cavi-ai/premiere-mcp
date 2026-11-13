@@ -3,6 +3,7 @@
 import json
 import os
 import plistlib
+import re
 import shutil
 import tempfile
 import time
@@ -14,6 +15,7 @@ from cavi_mcp_core.proc import diagnostics, run_sync
 JSX = Path(__file__).with_name("jsx")
 CUT = JSX / "cut.jsx"
 READY_TIMEOUT = 300
+ENCODER_SETTLE = 40
 PRESET = "*.app/Contents/MediaIO/systempresets/3F3F3F3F_4D6F6F56/Apple ProRes 422 HQ.epr"
 TRANSITIONS = {"cross_dissolve": "Cross Dissolve", "film_dissolve": "Film Dissolve",
                "dip_to_white": "Dip to White", "dip_to_black": "Dip to Black"}
@@ -36,6 +38,10 @@ def premiere():
 
 def photoshop():
     return newest("Adobe Photoshop 20*/Adobe Photoshop 20*.app")
+
+
+def media_encoder():
+    return newest("Adobe Media Encoder 20*/Adobe Media Encoder 20*.app")
 
 
 def prores_preset():
@@ -400,6 +406,163 @@ def transition_add(sequence, kind, track, at, position_index, transition, frames
     return invoke("transition_add", args, timeout)
 
 
+def one_clip(at, position_index, name=None):
+    if sum(value is not None for value in (at, position_index, name)) != 1:
+        raise ValueError("Give exactly one of at, position_index or name")
+
+
+def clip_edit(sequence, kind, track, at, position_index, name, edit, timeout):
+    """Trim, move, enable, rename, link, unlink or remove one placed clip."""
+    one_clip(at, position_index, name)
+    if edit.get("remove") and any(v is not None and k not in ("remove", "keep_linked") for k, v in edit.items()):
+        raise ValueError("remove cannot be combined with other edits")
+    if all(v is None for v in edit.values()):
+        raise ValueError("Give at least one edit")
+    start, end = edit.get("trim_start"), edit.get("trim_end")
+    if start is not None and end is not None and end <= start:
+        raise ValueError("trim_end must be after trim_start")
+    args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
+            "name": name, **edit}
+    return invoke("clip_edit", args, timeout)
+
+
+def razor(sequence, times, kind, track, timeout):
+    if track is not None and kind == "all":
+        raise ValueError("Give kind video or audio with a track")
+    return invoke("razor", {"sequence": sequence, "times": sorted(set(times)), "kind": kind, "track": track}, timeout)
+
+
+def clip_speed(sequence, kind, track, at, position_index, speed, duration, reverse, maintain_pitch, ripple, timeout):
+    one_clip(at, position_index)
+    if (speed is None) == (duration is None):
+        raise ValueError("Give exactly one of speed or duration")
+    args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
+            "speed": speed, "duration": duration, "reverse": reverse, "maintain_pitch": maintain_pitch,
+            "ripple": ripple}
+    return invoke("clip_speed", args, timeout)
+
+
+def sequence_set(sequence, change, timeout):
+    """Settings, in/out points, nest, duplicate, rename or delete a sequence."""
+    if all(v is None or v is False for v in change.values()):
+        raise ValueError("Give at least one change")
+    if change.get("remove") and any(v is not None and v is not False for k, v in change.items() if k != "remove"):
+        raise ValueError("remove cannot be combined with other changes")
+    return invoke("sequence_set", {"sequence": sequence, **change}, timeout)
+
+
+def tracks(sequence, add_video, add_audio, states, timeout):
+    if not (add_video or add_audio or states):
+        raise ValueError("Give tracks to add or track states to set")
+    return invoke("tracks", {"sequence": sequence, "add_video": add_video, "add_audio": add_audio,
+                             "tracks": states}, timeout)
+
+
+def png_size(path):
+    with open(path, "rb") as file:
+        head = file.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise RuntimeError(f"Not a PNG: {path}")
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
+
+def frame_export(sequence, times, folder, prefix, timeout):
+    """PNG stills of a sequence at the given seconds; every file is checked on disk."""
+    folder = absolute(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    paths = [str(folder / f"{prefix}_{i + 1:03d}_{time:.3f}s") for i, time in enumerate(times)]
+    result = invoke("frame_export", {"sequence": sequence, "times": list(times), "paths": paths}, timeout)
+    for frame in result["frames"]:
+        path = Path(frame["path"])
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError(f"Premiere wrote no frame at {path}")
+        frame["width"], frame["height"] = png_size(path)
+    return result
+
+
+def effects(filter_, timeout):
+    return invoke("effects", {"filter": filter_}, timeout)
+
+
+def effect_add(sequence, kind, track, at, position_index, effect, timeout):
+    one_clip(at, position_index)
+    return invoke("effect_add", {"sequence": sequence, "kind": kind, "track": track, "at": at,
+                                 "position_index": position_index, "effect": effect}, timeout)
+
+
+def effect_set(sequence, kind, track, at, position_index, component, component_index, list_, params, timeout):
+    """Set or list the parameters of a clip's component, by display names."""
+    one_clip(at, position_index)
+    if not list_ and not params:
+        raise ValueError("Give params to set or list=true")
+    if params and not component:
+        raise ValueError("Give the component the parameters belong to")
+    for spec in params:
+        if spec.get("keyframes"):
+            if spec.get("value") is not None or spec.get("color"):
+                raise ValueError(f"{spec['name']}: give either a value or keyframes")
+        elif (spec.get("value") is None) == (spec.get("color") is None):
+            raise ValueError(f"{spec['name']}: give exactly one of value or color")
+    args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
+            "component": component, "component_index": component_index, "list": list_, "params": params}
+    return invoke("effect_set", args, timeout)
+
+
+def clip_fit(sequence, track, at, position_index, mode, timeout):
+    one_clip(at, position_index)
+    return invoke("clip_fit", {"sequence": sequence, "track": track, "at": at,
+                               "position_index": position_index, "mode": mode}, timeout)
+
+
+def items(item, change, timeout):
+    """Rename, move, label, subclip, interpret, attach a proxy to, set metadata on or delete a project item."""
+    if all(v is None or v is False for v in change.values()):
+        raise ValueError("Give at least one change")
+    if change.get("remove") and any(v is not None and v is not False for k, v in change.items() if k != "remove"):
+        raise ValueError("remove cannot be combined with other changes")
+    if change.get("proxy"):
+        change = {**change, "proxy": {"path": str(existing(change["proxy"]["path"]))}}
+    sub = change.get("subclip")
+    if sub and sub["out_point"] <= sub["in_point"]:
+        raise ValueError("out_point must be after in_point")
+    result = invoke("items", {"item": item_ref(item), **change}, timeout)
+    result.setdefault("item", None)
+    return result
+
+
+def scene_times(media, threshold):
+    """Source times of hard cuts in a movie, from ffmpeg's scene score."""
+    result = run_sync([ffprobe().replace("ffprobe", "ffmpeg"), "-hide_banner", "-i", str(media), "-an", "-vf",
+                       f"select='gt(scene,{threshold})',showinfo", "-f", "null", "-"], 3600)
+    return [float(m) for m in re.findall(r"pts_time:([0-9.]+)", result.stderr)]
+
+
+def scene_detect(sequence, track, at, position_index, threshold, apply, include_audio, timeout):
+    """Cut times inside a placed clip, as timeline seconds; optionally razor or mark them."""
+    one_clip(at, position_index)
+    listed = inspect(sequence, timeout)["sequences"]
+    if sequence is None and len(listed) > 1:
+        raise ValueError("Give the sequence by name")
+    lane = listed[0]["video"][track]
+    clips = lane["clips"]
+    clip = clips[position_index] if position_index is not None else next(
+        (c for c in clips if c["start"] - 0.0005 <= at < c["end"] - 0.0005), None)
+    if clip is None or not clip["media_path"]:
+        raise ValueError("No clip with media at that place")
+    times = [clip["start"] + t - clip["in_point"] for t in scene_times(clip["media_path"], threshold)
+             if clip["in_point"] < t < clip["out_point"]]
+    times = [round(t, 3) for t in times]
+    result = {"clip": clip["name"], "cuts": times, "applied": apply}
+    if times and apply == "cuts":
+        host_razor = razor(sequence, times, "all" if include_audio else "video", None if include_audio else track,
+                           timeout)
+        result["clips_after"] = host_razor["clips_after"]
+    elif times and apply == "markers":
+        result["markers"] = markers_add(sequence, [{"time": t, "name": "cut", "comment": "", "duration": 0}
+                                                    for t in times], None, timeout)["total"]
+    return result
+
+
 def media_replace(item, path, timeout):
     """Relink a project item to a new file, then confirm through inspect that the project points at it."""
     target = existing(path)
@@ -443,23 +606,125 @@ def mogrt_add(sequence, mogrt, at, video_track, audio_track, duration, text, tim
     return invoke("mogrt_add", args, timeout)
 
 
-def export(sequence, master, preset, work_area, replace, timeout):
-    """Export a sequence with an .epr preset; judged by the report, the released file and ffprobe frames."""
+def caption_preset(preset, on, folder):
+    """A copy of an .epr preset in `folder` with DoCaptions set to on."""
+    value = "true" if on else "false"
+    text = Path(preset).read_text(encoding="utf-8")
+    if "<DoCaptions>" in text:
+        text = re.sub(r"<DoCaptions>(true|false)</DoCaptions>", f"<DoCaptions>{value}</DoCaptions>", text)
+    elif "<DoAudio>" in text:
+        text = text.replace("<DoAudio>true</DoAudio>", f"<DoAudio>true</DoAudio>\n\t<DoCaptions>{value}</DoCaptions>", 1)
+    else:
+        raise ValueError(f"Cannot add captions to preset {preset}")
+    copy = Path(folder) / f"{Path(preset).stem} captions.epr"
+    copy.write_text(text, encoding="utf-8")
+    return copy
+
+
+def launch_encoder():
+    """Start Media Encoder when it is not running and give it time to accept jobs."""
+    app = media_encoder()
+    if not running(app):
+        start(app)
+        deadline = time.monotonic() + 120
+        while not running(app) and time.monotonic() < deadline:
+            time.sleep(2)
+        time.sleep(ENCODER_SETTLE)
+
+
+def render(tool, sequence, master, preset, range_, replace, timeout, burn_captions=None):
+    """Run export.jsx or encode.jsx; judged by the report, the released file and ffprobe frames.
+
+    Every input is checked before Premiere or Media Encoder is touched.
+    """
+    if range_ not in ("entire", "in_out", "work_area"):
+        raise ValueError(f"range is entire, in_out or work_area: {range_}")
     master, preset = absolute(master), Path(resolve_preset("export", preset) if preset else prores_preset())
     if master.exists() and not replace:
         raise ValueError(f"Already exists (pass replace=true): {master}")
-    master.parent.mkdir(parents=True, exist_ok=True)
-    if master.exists():
-        master.unlink()
-    with tempfile.TemporaryDirectory(prefix="premiere-report-") as folder:
+    with tempfile.TemporaryDirectory(prefix="premiere-render-") as folder:
+        if burn_captions is not None:
+            preset = caption_preset(preset, burn_captions, folder)
+        master.parent.mkdir(parents=True, exist_ok=True)
+        if master.exists():
+            master.unlink()
+        if tool == "encode":
+            launch_encoder()
         report = Path(folder) / "report.json"
-        args = {"sequence": sequence, "master": str(master), "preset": str(preset), "work_area": work_area,
+        args = {"sequence": sequence, "master": str(master), "preset": str(preset), "range": range_,
                 "report": str(report)}
         body = (f"var CAVI_ARGS = {json.dumps(args)};\n"
-                + "\n".join((JSX / name).read_text() for name in ("lib.jsx", "export.jsx", "tail.jsx")))
+                + "\n".join((JSX / name).read_text() for name in ("lib.jsx", f"{tool}.jsx", "tail.jsx")))
         result = finish(body, report, master, timeout)
     frames = int(probe(master, "nb_frames"))
-    expected = round(result["sequence_end"] * result["fps"]) if work_area == "entire" else None
+    expected = round(result["span"] * result["fps"])
     return {"sequence": result["sequence"], "master": str(master), "fps": result["fps"], "frames": frames,
-            "expected_frames": expected, "complete": expected is None or frames == expected,
-            "warnings": result["warnings"]}
+            "expected_frames": expected, "complete": frames == expected, "warnings": result["warnings"]}
+
+
+def export(sequence, master, preset, range_, replace, timeout, burn_captions=None):
+    """Export a sequence with an .epr preset."""
+    return render("export", sequence, master, preset, range_, replace, timeout, burn_captions)
+
+
+def encode(sequence, master, preset, range_, replace, timeout):
+    """Queue a sequence in Media Encoder and start the batch; the file is the proof."""
+    return render("encode", sequence, master, preset, range_, replace, timeout)
+
+
+def auto_reframe(sequence, ratio, motion, name, nest, timeout):
+    """A new sequence at another aspect ratio, given as "9:16"."""
+    try:
+        numerator, denominator = (int(part) for part in ratio.split(":"))
+    except ValueError:
+        raise ValueError(f"Give the ratio as width:height, such as 9:16: {ratio}") from None
+    if numerator < 1 or denominator < 1:
+        raise ValueError(f"Give the ratio as width:height, such as 9:16: {ratio}")
+    args = {"sequence": sequence, "numerator": numerator, "denominator": denominator, "motion": motion,
+            "name": name or f"{ratio.replace(':', 'x')}", "nest": nest}
+    return invoke("auto_reframe", args, timeout)
+
+
+def interchange(sequence, action, path, replace, audio_rate, bits, timeout):
+    """Export a sequence as FCP XML, AAF or OMF, or import an FCP XML; the file or the new sequence is checked."""
+    suffix = {"xml": ".xml", "aaf": ".aaf", "omf": ".omf", "import_xml": ".xml"}[action]
+    if action == "import_xml":
+        target = existing(path, suffix)
+    else:
+        target = absolute(path, suffix)
+        if target.exists() and not replace:
+            raise ValueError(f"Already exists (pass replace=true): {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            target.unlink()
+    result = invoke("interchange", {"sequence": sequence, "action": action, "path": str(target),
+                                    "audio_rate": audio_rate, "bits": bits}, timeout)
+    if action == "import_xml":
+        added = [n for n in result["sequences_after"] if n not in result["sequences_before"]]
+        result["imported"] = added or result["sequences_after"][len(result["sequences_before"]):]
+        if len(result["sequences_after"]) <= len(result["sequences_before"]):
+            raise RuntimeError(f"Premiere imported no sequence from {target}")
+        return {"action": action, "path": str(target), "size": target.stat().st_size,
+                "imported": result["imported"], "warnings": result["warnings"]}
+    if not target.is_file() or target.stat().st_size == 0:
+        raise RuntimeError(f"Premiere wrote no {action} file at {target}")
+    return {"action": action, "path": str(target), "size": target.stat().st_size,
+            "sequence": result["sequence"], "warnings": result["warnings"]}
+
+
+def srt_count(path):
+    """The number of cues in an .srt file."""
+    text = Path(path).read_text(encoding="utf-8-sig").replace("\r\n", "\n")
+    return len([block for block in text.split("\n\n") if "-->" in block])
+
+
+def captions(sequence, file, start, format_, timeout):
+    """A caption track from an .srt file; the caption count is read from the file."""
+    source = existing(file, ".srt")
+    count = srt_count(source)
+    result = invoke("captions", {"sequence": sequence, "file": str(source), "start": start, "format": format_},
+                    timeout)
+    result["captions"] = count
+    return result
+
+

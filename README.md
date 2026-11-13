@@ -38,8 +38,24 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_transition_add` | Adds a QE transition of a given kind and length at the start or end of any track's clip. |
 | `premiere_media_replace` | Points a project item at a new file (or refreshes it) and confirms through `premiere_inspect`. |
 | `premiere_markers_add` | Adds sequence markers, including a beat grid from bpm and beats per bar. |
+| `premiere_clip_edit` | Trims, moves (in time and to another track), enables or disables, renames, links, unlinks or removes (ripple or lift) a placed clip found by time, index or name. |
+| `premiere_razor` | Splits one track or every track of a kind at one or more times with the QE razor. |
+| `premiere_clip_speed` | Sets a clip's speed in percent or the duration it fills, with reverse, audio pitch and ripple; returns the resulting duration. |
+| `premiere_sequence_set` | Sets frame size, frame rate and audio rate, in/out points; nests clips into a new sequence, duplicates, renames or deletes a sequence. |
+| `premiere_tracks` | Adds video and audio tracks, sets mute, lock and target per track, and returns the counts and every track's state. |
+| `premiere_frame_export` | Exports PNG stills of a sequence at given times and returns their paths and sizes. |
+| `premiere_auto_reframe` | Makes a new sequence at another aspect ratio (9:16, 1:1, 4:5, ...) with Auto Reframe, a motion preset and the nest option. |
+| `premiere_encode` | Queues a sequence in Adobe Media Encoder with a preset and a range, starts the batch and judges the file. |
+| `premiere_interchange` | Exports a sequence as FCP XML, AAF or OMF, or imports an FCP XML into the project. |
+| `premiere_captions` | Imports an `.srt` and creates a caption track on a sequence. |
+| `premiere_effects` | Lists the video and audio effects Premiere offers, with a name filter. |
+| `premiere_effect_add` | Adds a video or audio effect to a placed clip and returns the clip's components. |
+| `premiere_effect_set` | Sets or lists any component parameter by display names, static or keyframed with linear, hold or bezier interpolation, with colors as `#RRGGBB`. |
+| `premiere_clip_fit` | Sets a video clip's Motion Scale and centers it so the source fits or fills the sequence frame. |
+| `premiere_items` | Renames, moves to a bin, labels, subclips, interprets footage, attaches a proxy to, sets metadata on or deletes (bins) a project item. |
+| `premiere_scene_detect` | Finds hard cuts inside a placed clip from its media and reports them as timeline seconds; can split the clip or add markers there. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
-| `premiere_export` | Exports a sequence with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
+| `premiere_export` | Exports a sequence (whole, in/out range or work area, optional caption burn-in) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
 Paths are absolute. Photoshop and Premiere Pro are opened in the background (`open -g -a`) when
 they are not running. Times are seconds; tracks are 0-based (`track` 0 is V1 or A1); `sequence`
@@ -64,6 +80,70 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
   templates built in After Effects. The native Essential Graphics titles that ship with Premiere
   (`Basic Title`, `Basic Lower Third`) expose none; a request for text on one is refused.
   `video_track` must be an existing track. The text is confirmed by reading the parameter back.
+- `premiere_clip_edit` `remove` takes the clip's linked clips with it unless `keep_linked`, and
+  `ripple` shifts the later clips of every unlocked track left by the clip's length.
+  `premiere_clip_edit` addresses a clip by `at`, `position_index` or `name`. `trim_start` and `trim_end`
+  are timeline times and the source in/out follow them; a trim cannot reach past the source.
+  `move_to` shifts only the addressed clip, never its audio or video partner. A move to another
+  track places the clip again with its source range and its other stream, so it loses its effects and
+  its name. `remove` `ripple` removes the clip and moves the later clips of the same track left;
+  other tracks stay as they are. `unlink` takes the whole link group apart and `link_with` links
+  two clips; `linked` in the answer counts the clips in the clip's link group (0 when unlinked).
+- `premiere_razor` cuts at times on the frame grid; the answer counts the clips before and after.
+- `premiere_clip_speed` keeps the source range: 200% halves the duration, 50% doubles it, and a
+  clip that would run into its neighbour stops at it unless `ripple` is set. A clip's linked audio is
+  a separate clip: call it again with `kind` audio.
+- `premiere_sequence_set` nests the listed clips with `createSubsequence`; it copies the clips
+  inside the in/out range into a new sequence and leaves the source clips on their track. The work
+  area bounds cannot be set from a script; in/out points can.
+- `premiere_export` and `premiere_encode` take `range` entire, in_out or work_area and compare the
+  `ffprobe` frame count with the range's length. The work area cannot be changed from a script, so
+  `work_area` is the whole sequence unless it was set in the UI.
+- `premiere_encode` starts Media Encoder when it is not running and waits for it before queueing; the
+  call returns when the output file exists, is closed and has the expected frames.
+- `premiere_auto_reframe` keeps the source height and narrows the width (9:16 from 640x360 gives
+  202x360); the new sequence is named by `name`.
+- `premiere_interchange` `import_xml` adds the XML's sequence to the project; an imported sequence
+  keeps its name, so it can share one with the original.
+- `premiere_captions` counts cues in the `.srt`. The caption track shows in `premiere_frame_export`
+  stills. `premiere_export` `burn_captions` exports from a copy of the preset (written to a temporary folder)
+  with `DoCaptions` set: an H.264 preset burns the caption into the picture
+  (white text at the bottom in the frame; false removes it), a ProRes preset has no effect.
+- `premiere_mogrt_add` renders the template as placed (Bold Coming Up shows its default text in a
+  frame). The built-in templates expose no text parameters, and the `Source Text` property of their
+  `Text` component takes an encoded value: a plain string replaces the text with a broken render.
+  Setting text is verified only through the template's exposed parameters. The value of `Source Text`
+  is not JSON (no `textEditValue`) and `getMGTComponent` is null on these templates, so the
+  JSON path does not apply.
+- `premiere_effect_set` finds a component by display name (`component_index` for repeats) and a
+  parameter by display name (`index` when several share one, as Lumetri Color's Saturation does).
+  Key times are seconds from the clip's start. Measured: Lumetri Color Saturation 0 turned red
+  (255,0,0) into gray (135,135,135) and Temperature 60 moved (255,255,0) to (255,247,0); Crop Left and
+  Right 25 turned a green pixel black; Gaussian Blur Amount keyed 0 to 80 lowered the edge energy of
+  frames from 11.0 to 5.6 to 3.6; Transform Scale Height and Width 40 blacked a corner pixel; Ultra Key
+  with `#c60000` changed the keyed red area; audio Amplify Gain 0.9 raised the exported mean volume
+  from -24.1 dB to -0.5 dB. Lumetri's Input LUT and Look take no file: a path is refused and a list
+  index is accepted without changing the picture. The Gaussian Blur effect (not the legacy one) has
+  Amount where the legacy one has Blurriness; Transform has Scale Width and Scale Height with Uniform
+  Scale off.
+- `premiere_clip_fit` computes the scale from the source frame size (a 1280x720 clip in a 640x360
+  sequence gets Scale 50 for fit, 50 for fill) because the QE `scaleToFrameSize` flag cannot be set.
+- `premiere_items` takes a media path or a name (bins by name). `subclip` times are source seconds and
+  the subclip lands in the project root; `premiere_inspect` shows it with `clip_duration` (the
+  subclip's length) next to `duration` (the media's), and `label` per item. `interpret` frame_rate 30 on
+  a 25 fps 6 s clip changed its `duration` to 5; field order, pixel aspect and alpha usage read back as
+  set. `proxy` needs a file that matches the clip (a 320x180 ProRes copy with the same audio was
+  accepted; one without audio was refused). `xmp` writes xmpDM text properties (logComment, shotName,
+  ...) and reads them back. Bins can be deleted with their contents; clip items cannot be deleted
+  from a script (`deleteBin` returns true and the item stays).
+- `premiere_scene_detect` reads the clip's source with ffmpeg because `performSceneEditDetectionOnSelection`
+  returned true and changed nothing (ApplyCuts and CreateMarkers, ProRes and H.264 clips, after 20 s). A
+  clip of three 1 s colors placed at 8 s reported cuts at 9.0 and 10.0, and `cuts` split it there.
+- `premiere_export` `burn_captions` and `premiere_encode` check every input before Premiere or Media
+  Encoder is started; preset copies live in a temporary folder for the call.
+- `premiere_tracks` adds stereo audio tracks and appends them after the last track.
+- `premiere_frame_export` writes `<folder>/<prefix>_<n>_<time>s.png` and checks each file and its
+  PNG header on disk; a time at or past the sequence end is refused.
 - `premiere_export` and `premiere_sequence_new` take an absolute path or a name from
   `premiere_presets`. A name used by several formats is written `format/name`, for example
   `H264/00 - Match Source - High bitrate`; user presets win over system ones. Export defaults to
@@ -137,6 +217,31 @@ Measured with Premiere Pro 2026 and Photoshop 2026 on macOS.
 11. `importMGT` puts a template on the last track when the offset is past it. Its text parameters
     are JSON strings with a `textEditValue` field, exposed only by templates with an `MGT`
     component.
+12. A `TrackItem` write of `start` or `end` moves one edge and leaves `inPoint` and `outPoint`; a trim
+    sets all four. A start past the current end needs the end set first. `TrackItem.move` takes a
+    time offset and moves only that clip. `TrackItem.remove(ripple)` and QE `remove` delete the
+    clip and leave the gap open.
+13. `Sequence.unlinkSelection` returns false unless the selection holds the whole link group (a
+    linked clip selected through a script does not select its partner); `linkSelection` needs
+    both clips selected. Both need the sequence open (`openSequence`). `getLinkedItems` is null for
+    an unlinked clip.
+14. QE `setSpeed(speed, duration, reverse, maintainPitch, ripple)`: `speed` is a ratio (2 is 200%)
+    and `duration` is the timecode the clip fills; a zero duration keeps the length and is clamped
+    by the source. The clip's `inPoint` and `outPoint` read as timeline times after a speed change.
+15. QE `addTracks(videoCount, afterVideo, audioCount, afterAudio, audioType)` takes 0-based
+    positions of an existing track; a position past the last audio track adds nothing.
+16. QE `exportFramePNG(timecode, path)` writes `path.png` and returns true and the file
+    exists when the call returns. `setWorkAreaInPoint`,
+    `setWorkAreaOutPoint` and QE `setWorkInPoint` return without changing the work area.
+17. `Sequence.setSettings` accepts `videoFrameWidth`, `videoFrameHeight`, `previewFrameWidth`,
+    `previewFrameHeight`, `videoFrameRate` and `audioSampleRate` as `Time` objects in ticks
+    (`254016000000` per second divided by the rate) and applies them to a sequence that has clips.
+18. `Sequence.exportAsFinalCutProXML(path, 1)`, `Project.exportAAF` and `Project.exportOMF` write their
+    files synchronously; OMF also writes `<name>omfLog.txt` beside it. `importFiles` on an FCP XML adds
+    its sequence. `autoReframeSequence(num, den, preset, name, nest)` returns the new sequence.
+19. `app.encoder.encodeSequence(sequence, path, preset, range, 1)` returns a job id and
+    `startBatch()` runs it; right after Media Encoder launches the job is not accepted, so the tool
+    waits for the launch. A 4 s ProRes in/out job finished in about 25 s.
 
 ## Development
 

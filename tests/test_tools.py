@@ -1,18 +1,22 @@
 import json
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import textwrap
 import time
 import unittest
+import zlib
 from pathlib import Path
 
 from cavi_premiere_mcp import host
 
 JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
-         "media_replace", "markers_add", "mogrt_add", "export", "transitions"]
+         "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
+         "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions", "effects", "effect_add", "effect_set",
+         "clip_fit", "items"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -78,6 +82,137 @@ class RefusalTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "markers or a beat_grid"):
             host.markers_add(None, [], None, 60)
 
+    def test_clip_edit_needs_one_address_and_one_kind_of_edit(self):
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            host.clip_edit(None, "video", 0, 1.0, 0, None, {"enabled": False}, 60)
+        with self.assertRaisesRegex(ValueError, "at least one edit"):
+            host.clip_edit(None, "video", 0, None, 0, None, {"enabled": None}, 60)
+        with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
+            host.clip_edit(None, "video", 0, None, 0, None, {"remove": "lift", "enabled": False}, 60)
+        with self.assertRaisesRegex(ValueError, "trim_end must be after trim_start"):
+            host.clip_edit(None, "video", 0, None, 0, None, {"trim_start": 3, "trim_end": 2}, 60)
+
+    def test_razor_on_one_track_needs_its_kind(self):
+        with self.assertRaisesRegex(ValueError, "kind video or audio"):
+            host.razor(None, [1], "all", 0, 60)
+
+    def test_speed_is_given_as_percent_or_duration(self):
+        for speed, duration in ((None, None), (200, 1.0)):
+            with self.assertRaisesRegex(ValueError, "exactly one of speed or duration"):
+                host.clip_speed(None, "video", 0, None, 0, speed, duration, False, True, False, 60)
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            host.clip_speed(None, "video", 0, None, None, 200, None, False, True, False, 60)
+
+    def test_sequence_change_is_not_empty_and_delete_stands_alone(self):
+        with self.assertRaisesRegex(ValueError, "at least one change"):
+            host.sequence_set(None, {"settings": None, "remove": False}, 60)
+        with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
+            host.sequence_set(None, {"remove": True, "new_name": "x"}, 60)
+
+    def test_reframe_ratio_is_width_colon_height(self):
+        for ratio in ("9x16", "0:16", "9:"):
+            with self.assertRaisesRegex(ValueError, "width:height"):
+                host.auto_reframe(None, ratio, "default", None, False, 60)
+
+    def test_interchange_keeps_an_existing_file_and_imports_only_xml(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "a.aaf"
+            target.write_text("kept")
+            with self.assertRaisesRegex(ValueError, "pass replace=true"):
+                host.interchange(None, "aaf", target, False, 48000, 16, 60)
+            self.assertEqual(target.read_text(), "kept")
+            with self.assertRaisesRegex(ValueError, "Expected a .xml file"):
+                host.interchange(None, "import_xml", target, False, 48000, 16, 60)
+            with self.assertRaisesRegex(ValueError, "Expected a .omf file"):
+                host.interchange(None, "omf", Path(folder) / "a.aaf", True, 48000, 16, 60)
+
+    def test_encode_keeps_an_existing_master(self):
+        with tempfile.TemporaryDirectory() as folder:
+            master, preset = Path(folder) / "m.mov", Path(folder) / "p.epr"
+            master.write_text("kept")
+            preset.write_text("")
+            with self.assertRaisesRegex(ValueError, "pass replace=true"):
+                host.render("encode", None, master, preset, "in_out", False, 60)
+            self.assertEqual(master.read_text(), "kept")
+
+    def test_captions_need_an_srt_and_are_counted_from_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            srt = Path(folder) / "c.srt"
+            srt.write_text("1\r\n00:00:00,500 --> 00:00:02,500\r\nOne\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nTwo\r\n")
+            self.assertEqual(host.srt_count(srt), 2)
+            with self.assertRaisesRegex(ValueError, "Expected a .srt file"):
+                host.captions(None, Path(folder) / "c.vtt", 0, "subtitle", 60)
+
+    def test_effect_parameters_are_checked_before_premiere_is_asked(self):
+        def call(component, params, list_=False, at=None, index=0):
+            return host.effect_set(None, "video", 0, at, index, component, 0, list_, params, 60)
+
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            call("Crop", [{"name": "Left", "value": 1}], at=1.0)
+        with self.assertRaisesRegex(ValueError, "params to set or list=true"):
+            call("Crop", [])
+        with self.assertRaisesRegex(ValueError, "component the parameters belong to"):
+            call(None, [{"name": "Left", "value": 1}])
+        with self.assertRaisesRegex(ValueError, "exactly one of value or color"):
+            call("Crop", [{"name": "Left"}])
+        with self.assertRaisesRegex(ValueError, "either a value or keyframes"):
+            call("Crop", [{"name": "Left", "value": 1, "keyframes": [{"time": 0, "value": 2}]}])
+
+    def test_caption_preset_copies_go_to_the_given_folder_only(self):
+        package = Path(host.__file__).parent
+        listing = sorted(str(p) for p in package.rglob("*") if "__pycache__" not in p.parts)
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as out:
+            on = Path(folder) / "has.epr"
+            on.write_text("<A>\n\t<DoAudio>true</DoAudio>\n\t<DoCaptions>true</DoCaptions>\n</A>")
+            bare = Path(folder) / "bare.epr"
+            bare.write_text("<A>\n\t<DoAudio>true</DoAudio>\n</A>")
+            off, added = host.caption_preset(on, False, out), host.caption_preset(bare, True, out)
+            self.assertEqual({off.parent, added.parent}, {Path(out)})
+            self.assertIn("<DoCaptions>false</DoCaptions>", off.read_text())
+            self.assertIn("<DoCaptions>true</DoCaptions>", added.read_text())
+            self.assertIn("<DoCaptions>true</DoCaptions>", on.read_text())
+            self.assertNotIn("DoCaptions", bare.read_text())
+        self.assertEqual(sorted(str(p) for p in package.rglob("*") if "__pycache__" not in p.parts), listing)
+
+    def test_encode_refuses_bad_input_before_media_encoder_is_started(self):
+        def launch(app):
+            raise RuntimeError("Media Encoder launched")
+
+        self.addCleanup(setattr, host, "start", host.start)
+        host.start = launch
+        with tempfile.TemporaryDirectory() as folder:
+            master = Path(folder) / "m.mov"
+            master.write_text("kept")
+            for args, message in (((master, None, "in_out", False), "Already exists"),
+                                  ((master, None, "bogus", True), "range is entire, in_out or work_area"),
+                                  ((Path("rel.mov"), None, "entire", True), "Use an absolute path"),
+                                  ((Path(folder) / "n.mov", Path(folder) / "p.xml", "entire", True),
+                                   "Expected a .epr file")):
+                with self.assertRaisesRegex(ValueError, message):
+                    host.encode(None, *args, 60)
+
+    def test_item_changes_are_checked_before_premiere_is_asked(self):
+        with self.assertRaisesRegex(ValueError, "at least one change"):
+            host.items("a.mov", {"rename": None, "remove": False}, 60)
+        with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
+            host.items("a.mov", {"remove": True, "label": 3}, 60)
+        with self.assertRaisesRegex(ValueError, "out_point must be after in_point"):
+            host.items("a.mov", {"subclip": {"name": "s", "in_point": 2, "out_point": 1}}, 60)
+        with self.assertRaisesRegex(ValueError, "No file at"):
+            host.items("a.mov", {"proxy": {"path": "/no/such/proxy.mov"}}, 60)
+
+    def test_scene_detect_needs_one_clip_address(self):
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            host.scene_detect(None, 0, None, None, 0.3, "report", False, 60)
+
+    def test_tracks_need_something_to_do(self):
+        with self.assertRaisesRegex(ValueError, "tracks to add or track states"):
+            host.tracks(None, 0, 0, [], 60)
+
+    def test_frames_are_exported_to_an_absolute_folder(self):
+        with self.assertRaisesRegex(ValueError, "absolute path"):
+            host.frame_export(None, [1.0], "frames", "f", 60)
+
 
 @unittest.skipUnless(shutil.which("node"), "node is required")
 class ScriptTest(unittest.TestCase):
@@ -96,6 +231,11 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(json.loads(self.node("process.stdout.write(stringify({a: NaN, b: 1}))")),
                          {"a": None, "b": 1})
 
+    def test_timecodes_use_the_frame_grid_and_carry_over_minutes_and_hours(self):
+        out = self.node("process.stdout.write(JSON.stringify([tcOf(2, 25), tcOf(0.52, 25), tcOf(61.5, 25), "
+                        "tcOf(3725, 30), tcOf(1 / 30, 30)]))")
+        self.assertEqual(json.loads(out), ["00:00:02:00", "00:00:00:13", "00:01:01:13", "01:02:05:00", "00:00:00:01"])
+
     def test_every_tool_script_is_valid_javascript(self):
         for tool in TOOLS:
             with tempfile.TemporaryDirectory() as folder:
@@ -104,6 +244,34 @@ class ScriptTest(unittest.TestCase):
                                                                                  "tail.jsx")))
                 result = subprocess.run(["node", "--check", str(script)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, f"{tool}: {result.stderr}")
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is required")
+class SceneTest(unittest.TestCase):
+    def test_hard_cuts_are_found_at_their_source_times(self):
+        with tempfile.TemporaryDirectory() as folder:
+            movie = Path(folder) / "cuts.mov"
+            colors = [f"color=c={c}:s=160x90:r=25:d=1" for c in ("red", "blue", "green")]
+            subprocess.run(["ffmpeg", "-loglevel", "error", *sum((["-f", "lavfi", "-i", c] for c in colors), []),
+                            "-filter_complex", "[0][1][2]concat=n=3:v=1:a=0", str(movie)], check=True)
+            self.assertEqual([round(t, 2) for t in host.scene_times(movie, 0.3)], [1.0, 2.0])
+            self.assertEqual(host.scene_times(movie, 0.99), [])
+
+
+class StillTest(unittest.TestCase):
+    def test_png_size_is_read_from_the_header(self):
+        def chunk(kind, data):
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+        png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 640, 360, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", zlib.compress(b"\x00" + b"\x00\x00\x00" * 640) * 1) + chunk(b"IEND", b""))
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "f.png"
+            path.write_bytes(png)
+            self.assertEqual(host.png_size(path), (640, 360))
+            path.write_bytes(b"not a png at all, just text bytes")
+            with self.assertRaisesRegex(RuntimeError, "Not a PNG"):
+                host.png_size(path)
 
 
 @unittest.skipUnless(shutil.which("lsof"), "lsof is required")

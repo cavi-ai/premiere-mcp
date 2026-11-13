@@ -92,6 +92,8 @@ class Item(BaseModel):
     media_path: str | None
     offline: bool | None
     duration: float | None
+    clip_duration: float | None
+    label: int | None
     fps: float | None
     width: int | None
     height: int | None
@@ -217,6 +219,108 @@ class Export(Result):
     warnings: list[str]
 
 
+class Reframed(Result):
+    source: str
+    sequence: dict[str, Any]
+
+
+class Interchange(Result):
+    action: str
+    path: str
+    size: int
+    sequence: str | None = None
+    imported: list[str] | None = None
+
+
+class Captions(Result):
+    sequence: str
+    item: str
+    captions: int
+
+
+class Key(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    time: Seconds
+    value: Any = None
+    color: Annotated[str, Field(pattern=r"^#?[0-9a-fA-F]{6}$")] | None = None
+    interpolation: Literal["linear", "hold", "bezier"] | None = None
+
+
+class Param(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    value: Any = None
+    color: Annotated[str, Field(pattern=r"^#?[0-9a-fA-F]{6}$")] | None = None
+    index: Annotated[int, Field(ge=0)] = 0  # which of several parameters share this display name
+    keyframes: list[Key] | None = None
+
+
+class Effects(Result):
+    video: list[str]
+    audio: list[str]
+
+
+class EffectAdded(Result):
+    clip: str
+    components_before: int
+    components: list[dict[str, Any]]
+
+
+class EffectSet(Result):
+    clip: str
+    applied: dict[str, Any]
+    components: list[dict[str, Any]] | None = None
+
+
+class Fit(Result):
+    clip: str
+    source: dict[str, int]
+    sequence_size: dict[str, int]
+    scale: float
+
+
+class ItemState(BaseModel):
+    name: str
+    bin: str
+    kind: str
+    label: int
+    xmp: dict[str, str]
+
+
+class Items(Result):
+    item: ItemState | None
+    subclip: dict[str, str] | None = None
+    interpretation: dict[str, Any] | None = None
+    proxy: dict[str, Any] | None = None
+    deleted: str | None = None
+
+
+class Scenes(Result):
+    clip: str
+    cuts: list[float]
+    applied: str
+    clips_after: int | None = None
+    markers: int | None = None
+
+
+class SubClip(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    in_point: Seconds
+    out_point: Seconds
+    hard: bool = False
+
+
+class Interpret(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    frame_rate: Annotated[float, Field(gt=0, le=240)] | None = None
+    pixel_aspect: Annotated[float, Field(gt=0, le=10)] | None = None
+    alpha: Literal["none", "straight", "premultiplied", "ignore"] | None = None
+    invert_alpha: bool | None = None
+    field_order: Literal["default", "progressive", "upper", "lower"] | None = None
+    remove_pulldown: bool | None = None
+
+
 class Keyframe(BaseModel):
     model_config = ConfigDict(extra="forbid")
     time: Seconds
@@ -241,6 +345,137 @@ class NewMarker(BaseModel):
     name: str = ""
     comment: str = ""
     duration: Seconds = 0
+
+
+class EditedClip(BaseModel):
+    track: int
+    name: str
+    start: float
+    end: float
+    in_point: float
+    out_point: float
+    enabled: bool
+    position: int | None
+    linked: int
+
+
+class Removed(BaseModel):
+    name: str
+    start: float
+    end: float
+    mode: str
+    partners: int = 0
+
+
+class ClipEdit(Result):
+    sequence: str
+    clip: EditedClip | None = None
+    removed: Removed | None = None
+    note: str | None = None
+
+
+class Razor(Result):
+    sequence: str
+    cuts: int
+    clips_before: int
+    clips_after: int
+
+
+class Speed(Result):
+    clip: str
+    speed: float
+    reversed: bool
+    start: float
+    end: float
+    duration: float
+
+
+class SequenceState(BaseModel):
+    name: str
+    id: str
+    width: int
+    height: int
+    fps: float
+    audio_rate: int
+    end: float
+    in_point: float | None
+    out_point: float | None
+
+
+class SequenceChange(Result):
+    sequence: SequenceState | None = None
+    nested: SequenceState | None = None
+    duplicate: SequenceState | None = None
+    deleted: str | None = None
+    sequences: list[str]
+
+
+class TrackCounts(BaseModel):
+    video: int
+    audio: int
+
+
+class TrackState(BaseModel):
+    index: int
+    name: str
+    muted: bool
+    locked: bool
+    targeted: bool
+    clips: int
+
+
+class TrackLists(BaseModel):
+    video: list[TrackState]
+    audio: list[TrackState]
+
+
+class Tracks(Result):
+    sequence: str
+    before: TrackCounts
+    after: TrackCounts
+    tracks: TrackLists
+
+
+class Still(BaseModel):
+    time: float
+    path: str
+    width: int
+    height: int
+
+
+class Frames(Result):
+    sequence: str
+    frames: list[Still]
+
+
+class LinkRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Kind
+    track: Track = 0
+    position_index: Annotated[int, Field(ge=0)]
+
+
+class NestSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    clips: Annotated[list[LinkRef], Field(min_length=1)]
+    name: str = ""
+
+
+class SequenceSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    width: Annotated[int, Field(ge=16, le=16384)] | None = None
+    height: Annotated[int, Field(ge=16, le=16384)] | None = None
+    fps: Annotated[float, Field(gt=0, le=240)] | None = None
+    audio_rate: Annotated[int, Field(ge=8000, le=192000)] | None = None
+
+
+class TrackSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Kind
+    track: Track
+    muted: bool | None = None
+    locked: bool | None = None
+    targeted: bool | None = None
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -339,6 +574,151 @@ async def premiere_clip_props(kind: Kind = "video", track: Track = 0, at: Second
                                    timeout)
 
 
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_clip_edit(kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
+                             position_index: Annotated[int, Field(ge=0)] | None = None, name: str | None = None,
+                             trim_start: Seconds | None = None, trim_end: Seconds | None = None,
+                             move_to: Seconds | None = None, to_track: Track | None = None,
+                             enabled: bool | None = None, new_name: str | None = None,
+                             link_with: LinkRef | None = None, unlink: bool = False,
+                             remove: Literal["ripple", "lift"] | None = None, keep_linked: bool = False,
+                             sequence: str | None = None,
+                             timeout: Timeout = 300) -> ClipEdit:
+    """Edit the placed clip at time `at`, clip index position_index or clip name on a track. trim_start and
+    trim_end are new timeline times (the source in/out follow), move_to is the new start time and to_track
+    another track, enabled/new_name set the state and name, link_with links it to another clip, unlink
+    unlinks it, remove deletes it and its linked clips unless keep_linked (ripple shifts the later clips of
+    every unlocked track left, lift leaves the gap). remove stands alone."""
+    edit = {"trim_start": trim_start, "trim_end": trim_end, "move_to": move_to, "to_track": to_track,
+            "enabled": enabled, "new_name": new_name, "link_with": link_with and link_with.model_dump(),
+            "unlink": unlink or None, "remove": remove, "keep_linked": keep_linked or None}
+    return await asyncio.to_thread(host.clip_edit, sequence, kind, track, at, position_index, name, edit, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_razor(times: Annotated[list[Seconds], Field(min_length=1)],
+                         kind: Literal["video", "audio", "all"] = "all", track: Track | None = None,
+                         sequence: str | None = None, timeout: Timeout = 300) -> Razor:
+    """Split clips at each time with the QE razor: every track of `kind`, or one track when `track` is given
+    (then kind is video or audio). Times are seconds on the frame grid."""
+    return await asyncio.to_thread(host.razor, sequence, times, kind, track, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_clip_speed(kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
+                              position_index: Annotated[int, Field(ge=0)] | None = None,
+                              speed: Annotated[float, Field(gt=0, le=10000)] | None = None,
+                              duration: Annotated[float, Field(gt=0)] | None = None, reverse: bool = False,
+                              maintain_pitch: bool = True, ripple: bool = False, sequence: str | None = None,
+                              timeout: Timeout = 300) -> Speed:
+    """Set a clip's speed in percent, or the timeline duration it should fill in seconds (the source range is
+    kept). Reverse plays it backwards, maintain_pitch keeps audio pitch, ripple moves the later clips.
+    A clip's linked audio is a separate clip: call it again with kind audio."""
+    return await asyncio.to_thread(host.clip_speed, sequence, kind, track, at, position_index, speed, duration,
+                                   reverse, maintain_pitch, ripple, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_sequence_set(settings: SequenceSettings | None = None, in_point: Seconds | None = None,
+                                out_point: Seconds | None = None, nest: NestSpec | None = None,
+                                duplicate: str | None = None, new_name: str | None = None, remove: bool = False,
+                                sequence: str | None = None, timeout: Timeout = 300) -> SequenceChange:
+    """Change a sequence: settings (frame size, fps, audio rate), in/out points, nest listed clips into a
+    new sequence (limited to the in/out range), duplicate (the value names the copy, "" keeps Premiere's
+    name), rename, or delete (alone). Applied in that order."""
+    change = {"settings": settings and settings.model_dump(), "in_point": in_point, "out_point": out_point,
+              "nest": nest and nest.model_dump(), "duplicate": duplicate, "new_name": new_name,
+              "remove": remove}
+    return await asyncio.to_thread(host.sequence_set, sequence, change, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_tracks(add_video: Annotated[int, Field(ge=0, le=20)] = 0,
+                          add_audio: Annotated[int, Field(ge=0, le=20)] = 0, tracks: list[TrackSet] | None = None,
+                          sequence: str | None = None, timeout: Timeout = 300) -> Tracks:
+    """Add video and stereo audio tracks after the last one, and set mute, lock and target state per track;
+    returns the counts before and after and every track's state."""
+    states = [t.model_dump() for t in tracks or []]
+    return await asyncio.to_thread(host.tracks, sequence, add_video, add_audio, states, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_frame_export(times: Annotated[list[Seconds], Field(min_length=1, max_length=50)], folder: str,
+                                prefix: str = "frame", sequence: str | None = None,
+                                timeout: Timeout = 300) -> Frames:
+    """Export PNG stills of the sequence at the given seconds into a folder and return their paths and
+    sizes (open them to look at the result). An existing file of the same name is replaced."""
+    return await asyncio.to_thread(host.frame_export, sequence, times, folder, prefix, timeout)
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def premiere_effects(filter: str = "", timeout: Timeout = 300) -> Effects:
+    """Video and audio effects Premiere offers (QE names), limited to names containing `filter`."""
+    return await asyncio.to_thread(host.effects, filter, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_effect_add(effect: str, kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
+                              position_index: Annotated[int, Field(ge=0)] | None = None,
+                              sequence: str | None = None, timeout: Timeout = 300) -> EffectAdded:
+    """Add a video or audio effect (a name premiere_effects lists) to the clip at `at` or position_index;
+    returns the clip's components with their parameters."""
+    return await asyncio.to_thread(host.effect_add, sequence, kind, track, at, position_index, effect, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_effect_set(component: str | None = None, params: list[Param] | None = None, list: bool = False,
+                              component_index: Annotated[int, Field(ge=0)] = 0, kind: Kind = "video",
+                              track: Track = 0, at: Seconds | None = None,
+                              position_index: Annotated[int, Field(ge=0)] | None = None,
+                              sequence: str | None = None, timeout: Timeout = 300) -> EffectSet:
+    """Set parameters of a clip's component by display names (Motion, Opacity, Lumetri Color, Crop, ...).
+    Each param is a value, a color (#RRGGBB) or keyframes (seconds from the clip's start, with linear,
+    hold or bezier interpolation). `index` picks among parameters that share a name. list=true returns the
+    component's parameters with their values (all components without `component`)."""
+    specs = [p.model_dump(exclude_none=True) for p in params or []]
+    return await asyncio.to_thread(host.effect_set, sequence, kind, track, at, position_index, component,
+                                   component_index, list, specs, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_clip_fit(mode: Literal["fit", "fill"] = "fit", track: Track = 0, at: Seconds | None = None,
+                            position_index: Annotated[int, Field(ge=0)] | None = None,
+                            sequence: str | None = None, timeout: Timeout = 300) -> Fit:
+    """Set a video clip's Motion Scale and center it so its source fits inside the frame (fit) or covers
+    it (fill), whatever its source size."""
+    return await asyncio.to_thread(host.clip_fit, sequence, track, at, position_index, mode, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_items(item: str, rename: str | None = None, bin: str | None = None,
+                         label: Annotated[int, Field(ge=0, le=15)] | None = None, subclip: SubClip | None = None,
+                         interpret: Interpret | None = None, proxy: str | None = None,
+                         xmp: dict[str, str] | None = None, remove: bool = False,
+                         timeout: Timeout = 300) -> Items:
+    """Organize a project item (media path or name; bins by name): rename, move to a bin (created when
+    missing), color label 0-15, subclip (source seconds), footage interpretation, attach a proxy file,
+    set xmpDM metadata text (logComment, shotName, scene, ...) or delete a bin. Clip items cannot be deleted
+    from a script."""
+    change = {"rename": rename, "bin": bin, "label": label, "subclip": subclip and subclip.model_dump(),
+              "interpret": interpret and interpret.model_dump(exclude_none=True) or None,
+              "proxy": proxy and {"path": proxy}, "xmp": xmp, "remove": remove}
+    return await asyncio.to_thread(host.items, item, change, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_scene_detect(track: Track = 0, at: Seconds | None = None,
+                                position_index: Annotated[int, Field(ge=0)] | None = None,
+                                threshold: Annotated[float, Field(gt=0, lt=1)] = 0.3,
+                                apply: Literal["report", "cuts", "markers"] = "report", include_audio: bool = False,
+                                sequence: str | None = None, timeout: Timeout = 600) -> Scenes:
+    """Find hard cuts inside a placed video clip from its media (ffmpeg scene score above threshold) and
+    return them as timeline seconds; apply cuts splits the clip there (all tracks with include_audio),
+    apply markers adds a marker per cut."""
+    return await asyncio.to_thread(host.scene_detect, sequence, track, at, position_index, threshold, apply,
+                                   include_audio, timeout)
+
+
 @mcp.tool(annotations=WRITES)
 async def premiere_transition_add(transition: str = "Cross Dissolve", frames: Annotated[int, Field(ge=1, le=600)] = 12,
                                   kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
@@ -380,13 +760,57 @@ async def premiere_mogrt_add(mogrt: str, at: Seconds, video_track: Track = 1, au
                                    text or {}, timeout)
 
 
+Range = Literal["entire", "in_out", "work_area"]
+
+
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_export(master: str, preset: str | None = None, work_area: Literal["entire", "in_out"] = "entire",
-                          replace: bool = False, sequence: str | None = None, timeout: Timeout = 1800) -> Export:
+async def premiere_export(master: str, preset: str | None = None, range: Range = "entire",
+                          replace: bool = False, burn_captions: bool | None = None, sequence: str | None = None,
+                          timeout: Timeout = 1800) -> Export:
     """Export a sequence through exportAsMediaDirect with a preset: an absolute .epr path or a name
-    premiere_presets lists (format/name when the name is not unique, e.g. H264/...); default ProRes 422 HQ. Completion is judged by the
+    premiere_presets lists (format/name when the name is not unique, e.g. H264/...); default ProRes 422 HQ.
+    range is the whole sequence, its in/out points or its work area. burn_captions true or false exports from a copy of
+    the preset with its captions setting changed (H.264 presets burn captions in; ProRes presets do not). Completion is judged by the
     report file, the output released by every process and the ffprobe frame count, not the relay's answer."""
-    return await asyncio.to_thread(host.export, sequence, master, preset, work_area, replace, timeout)
+    return await asyncio.to_thread(host.export, sequence, master, preset, range, replace, timeout, burn_captions)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_encode(master: str, preset: str | None = None, range: Range = "entire",
+                          replace: bool = False, sequence: str | None = None, timeout: Timeout = 1800) -> Export:
+    """Queue a sequence in Adobe Media Encoder (started when needed) with a preset (an absolute .epr path or
+    a name premiere_presets lists) and start the batch. Premiere stays free; completion is judged by the
+    output file, no process holding it open and the ffprobe frame count."""
+    return await asyncio.to_thread(host.encode, sequence, master, preset, range, replace, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_auto_reframe(ratio: str, motion: Literal["slower", "default", "faster"] = "default",
+                                name: str | None = None, nest: bool = False, sequence: str | None = None,
+                                timeout: Timeout = 600) -> Reframed:
+    """New sequence at another aspect ratio (width:height, such as 9:16, 1:1 or 4:5) from Auto Reframe,
+    with the motion preset; nest puts the clips in nested sequences. Returns the new sequence."""
+    return await asyncio.to_thread(host.auto_reframe, sequence, ratio, motion, name, nest, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_interchange(action: Literal["xml", "aaf", "omf", "import_xml"], path: str,
+                               replace: bool = False, audio_rate: Annotated[int, Field(ge=8000, le=192000)] = 48000,
+                               bits: Literal[16, 24] = 16, sequence: str | None = None,
+                               timeout: Timeout = 600) -> Interchange:
+    """Export a sequence as FCP XML (xml), AAF or OMF to an absolute path, or import an FCP XML
+    (import_xml) into the project; the file or the new sequence is checked. audio_rate and bits
+    are for AAF and OMF."""
+    return await asyncio.to_thread(host.interchange, sequence, action, path, replace, audio_rate, bits, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_captions(file: str, start: Seconds = 0,
+                            format: Literal["subtitle", "608", "708", "teletext", "op42", "op47", "open_ebu"] = "subtitle",
+                            sequence: str | None = None, timeout: Timeout = 300) -> Captions:
+    """Import an .srt and create a caption track on the sequence from `start` seconds. Returns the caption
+    count read from the file. Captions appear in premiere_frame_export stills."""
+    return await asyncio.to_thread(host.captions, sequence, file, start, format, timeout)
 
 
 def main():
