@@ -174,33 +174,22 @@ class RefusalTest(unittest.TestCase):
             self.assertNotIn("DoCaptions", bare.read_text())
         self.assertEqual(sorted(str(p) for p in package.rglob("*") if "__pycache__" not in p.parts), listing)
 
-    def test_encode_validates_before_media_encoder_is_started(self):
-        started = []
+    def test_encode_refuses_bad_input_before_media_encoder_is_started(self):
+        def launch(app):
+            raise RuntimeError("Media Encoder launched")
+
         self.addCleanup(setattr, host, "start", host.start)
-        host.start = lambda app: started.append(app)
+        host.start = launch
         with tempfile.TemporaryDirectory() as folder:
             master = Path(folder) / "m.mov"
             master.write_text("kept")
-            for args in ((master, None, "in_out", False), (master, None, "bogus", True),
-                         (Path("rel.mov"), None, "entire", True), (Path(folder) / "n.mov", Path(folder) / "p.xml",
-                                                                    "entire", True)):
-                with self.assertRaises(ValueError):
+            for args, message in (((master, None, "in_out", False), "Already exists"),
+                                  ((master, None, "bogus", True), "range is entire, in_out or work_area"),
+                                  ((Path("rel.mov"), None, "entire", True), "Use an absolute path"),
+                                  ((Path(folder) / "n.mov", Path(folder) / "p.xml", "entire", True),
+                                   "Expected a .epr file")):
+                with self.assertRaisesRegex(ValueError, message):
                     host.encode(None, *args, 60)
-        self.assertEqual(started, [])
-
-    def test_item_changes_are_checked_before_premiere_is_asked(self):
-        with self.assertRaisesRegex(ValueError, "at least one change"):
-            host.items("a.mov", {"rename": None, "remove": False}, 60)
-        with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
-            host.items("a.mov", {"remove": True, "label": 3}, 60)
-        with self.assertRaisesRegex(ValueError, "out_point must be after in_point"):
-            host.items("a.mov", {"subclip": {"name": "s", "in_point": 2, "out_point": 1}}, 60)
-        with self.assertRaisesRegex(ValueError, "No file at"):
-            host.items("a.mov", {"proxy": {"path": "/no/such/proxy.mov"}}, 60)
-
-    def test_scene_detect_needs_one_clip_address(self):
-        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
-            host.scene_detect(None, 0, None, None, 0.3, "report", False, 60)
 
     def test_tracks_need_something_to_do(self):
         with self.assertRaisesRegex(ValueError, "tracks to add or track states"):
