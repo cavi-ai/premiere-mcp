@@ -8,28 +8,7 @@ function timecode(frames, fps) {
 
 function run(A, report) {
     var sequence = findSequence(A.sequence), clip = findClip(sequence, A.kind, A.track, A.at, A.position_index),
-        fps = Math.round(TICKS / Number(sequence.timebase)), lane, entry, effect, index = -1, n = 0, i, found = null;
-    each(track(sequence, A.kind, A.track).clips, function (candidate, k) {
-        if (candidate.start.ticks === clip.start.ticks) {
-            index = k;
-        }
-    });
-    app.enableQE();
-    lane = A.kind === "audio" ? qe.project.getActiveSequence().getAudioTrackAt(A.track)
-        : qe.project.getActiveSequence().getVideoTrackAt(A.track);
-    // QE lists empty gaps as items; the k-th "Clip" item is the k-th clip of the track.
-    for (i = 0; i < lane.numItems; i++) {
-        if (lane.getItemAt(i).type === "Clip") {
-            if (n === index) {
-                entry = lane.getItemAt(i);
-                break;
-            }
-            n += 1;
-        }
-    }
-    if (!entry) {
-        fail("QE has no item for the clip");
-    }
+        fps = frameRate(sequence), entry = qeItem(sequence, A.kind, A.track, clip), effect, found = null;
     effect = A.kind === "audio" ? qe.project.getAudioTransitionByName(A.transition)
         : qe.project.getVideoTransitionByName(A.transition);
     if (!effect) {

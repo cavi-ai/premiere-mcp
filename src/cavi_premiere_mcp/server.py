@@ -243,6 +243,136 @@ class NewMarker(BaseModel):
     duration: Seconds = 0
 
 
+class EditedClip(BaseModel):
+    track: int
+    name: str
+    start: float
+    end: float
+    in_point: float
+    out_point: float
+    enabled: bool
+    position: int | None
+    linked: int
+
+
+class Removed(BaseModel):
+    name: str
+    start: float
+    end: float
+    mode: str
+
+
+class ClipEdit(Result):
+    sequence: str
+    clip: EditedClip | None = None
+    removed: Removed | None = None
+    note: str | None = None
+
+
+class Razor(Result):
+    sequence: str
+    cuts: int
+    clips_before: int
+    clips_after: int
+
+
+class Speed(Result):
+    clip: str
+    speed: float
+    reversed: bool
+    start: float
+    end: float
+    duration: float
+
+
+class SequenceState(BaseModel):
+    name: str
+    id: str
+    width: int
+    height: int
+    fps: float
+    audio_rate: int
+    end: float
+    in_point: float | None
+    out_point: float | None
+
+
+class SequenceChange(Result):
+    sequence: SequenceState | None = None
+    nested: SequenceState | None = None
+    duplicate: SequenceState | None = None
+    deleted: str | None = None
+    sequences: list[str]
+
+
+class TrackCounts(BaseModel):
+    video: int
+    audio: int
+
+
+class TrackState(BaseModel):
+    index: int
+    name: str
+    muted: bool
+    locked: bool
+    targeted: bool
+    clips: int
+
+
+class TrackLists(BaseModel):
+    video: list[TrackState]
+    audio: list[TrackState]
+
+
+class Tracks(Result):
+    sequence: str
+    before: TrackCounts
+    after: TrackCounts
+    tracks: TrackLists
+
+
+class Still(BaseModel):
+    time: float
+    path: str
+    width: int
+    height: int
+
+
+class Frames(Result):
+    sequence: str
+    frames: list[Still]
+
+
+class LinkRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Kind
+    track: Track = 0
+    position_index: Annotated[int, Field(ge=0)]
+
+
+class NestSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    clips: Annotated[list[LinkRef], Field(min_length=1)]
+    name: str = ""
+
+
+class SequenceSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    width: Annotated[int, Field(ge=16, le=16384)] | None = None
+    height: Annotated[int, Field(ge=16, le=16384)] | None = None
+    fps: Annotated[float, Field(gt=0, le=240)] | None = None
+    audio_rate: Annotated[int, Field(ge=8000, le=192000)] | None = None
+
+
+class TrackSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Kind
+    track: Track
+    muted: bool | None = None
+    locked: bool | None = None
+    targeted: bool | None = None
+
+
 @mcp.tool(annotations=READ_ONLY)
 async def premiere_status() -> Status:
     """Installed Premiere Pro and Photoshop (the script relay), their pids, and the ProRes preset."""
@@ -337,6 +467,81 @@ async def premiere_clip_props(kind: Kind = "video", track: Track = 0, at: Second
               for key in keyframes or []]
     return await asyncio.to_thread(host.clip_props, sequence, kind, track, at, position_index, props, frames,
                                    timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_clip_edit(kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
+                             position_index: Annotated[int, Field(ge=0)] | None = None, name: str | None = None,
+                             trim_start: Seconds | None = None, trim_end: Seconds | None = None,
+                             move_to: Seconds | None = None, to_track: Track | None = None,
+                             enabled: bool | None = None, new_name: str | None = None,
+                             link_with: LinkRef | None = None, unlink: bool = False,
+                             remove: Literal["ripple", "lift"] | None = None, sequence: str | None = None,
+                             timeout: Timeout = 300) -> ClipEdit:
+    """Edit the placed clip at time `at`, clip index position_index or clip name on a track. trim_start and
+    trim_end are new timeline times (the source in/out follow), move_to is the new start time and to_track
+    another track, enabled/new_name set the state and name, link_with links it to another clip, unlink
+    unlinks it, remove deletes it (ripple closes the gap, lift leaves it). remove stands alone."""
+    edit = {"trim_start": trim_start, "trim_end": trim_end, "move_to": move_to, "to_track": to_track,
+            "enabled": enabled, "new_name": new_name, "link_with": link_with and link_with.model_dump(),
+            "unlink": unlink or None, "remove": remove}
+    return await asyncio.to_thread(host.clip_edit, sequence, kind, track, at, position_index, name, edit, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_razor(times: Annotated[list[Seconds], Field(min_length=1)],
+                         kind: Literal["video", "audio", "all"] = "all", track: Track | None = None,
+                         sequence: str | None = None, timeout: Timeout = 300) -> Razor:
+    """Split clips at each time with the QE razor: every track of `kind`, or one track when `track` is given
+    (then kind is video or audio). Times are seconds on the frame grid."""
+    return await asyncio.to_thread(host.razor, sequence, times, kind, track, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_clip_speed(kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
+                              position_index: Annotated[int, Field(ge=0)] | None = None,
+                              speed: Annotated[float, Field(gt=0, le=10000)] | None = None,
+                              duration: Annotated[float, Field(gt=0)] | None = None, reverse: bool = False,
+                              maintain_pitch: bool = True, ripple: bool = False, sequence: str | None = None,
+                              timeout: Timeout = 300) -> Speed:
+    """Set a clip's speed in percent, or the timeline duration it should fill in seconds (the source range is
+    kept). Reverse plays it backwards, maintain_pitch keeps audio pitch, ripple moves the later clips.
+    A clip's linked audio is a separate clip: call it again with kind audio."""
+    return await asyncio.to_thread(host.clip_speed, sequence, kind, track, at, position_index, speed, duration,
+                                   reverse, maintain_pitch, ripple, timeout)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_sequence_set(settings: SequenceSettings | None = None, in_point: Seconds | None = None,
+                                out_point: Seconds | None = None, nest: NestSpec | None = None,
+                                duplicate: str | None = None, new_name: str | None = None, remove: bool = False,
+                                sequence: str | None = None, timeout: Timeout = 300) -> SequenceChange:
+    """Change a sequence: settings (frame size, fps, audio rate), in/out points, nest listed clips into a
+    new sequence (limited to the in/out range), duplicate (the value names the copy, "" keeps Premiere's
+    name), rename, or delete (alone). Applied in that order."""
+    change = {"settings": settings and settings.model_dump(), "in_point": in_point, "out_point": out_point,
+              "nest": nest and nest.model_dump(), "duplicate": duplicate, "new_name": new_name,
+              "remove": remove}
+    return await asyncio.to_thread(host.sequence_set, sequence, change, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_tracks(add_video: Annotated[int, Field(ge=0, le=20)] = 0,
+                          add_audio: Annotated[int, Field(ge=0, le=20)] = 0, tracks: list[TrackSet] | None = None,
+                          sequence: str | None = None, timeout: Timeout = 300) -> Tracks:
+    """Add video and stereo audio tracks after the last one, and set mute, lock and target state per track;
+    returns the counts before and after and every track's state."""
+    states = [t.model_dump() for t in tracks or []]
+    return await asyncio.to_thread(host.tracks, sequence, add_video, add_audio, states, timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_frame_export(times: Annotated[list[Seconds], Field(min_length=1, max_length=50)], folder: str,
+                                prefix: str = "frame", sequence: str | None = None,
+                                timeout: Timeout = 300) -> Frames:
+    """Export PNG stills of the sequence at the given seconds into a folder and return their paths and
+    sizes (open them to look at the result). An existing file of the same name is replaced."""
+    return await asyncio.to_thread(host.frame_export, sequence, times, folder, prefix, timeout)
 
 
 @mcp.tool(annotations=WRITES)

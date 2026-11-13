@@ -38,6 +38,12 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_transition_add` | Adds a QE transition of a given kind and length at the start or end of any track's clip. |
 | `premiere_media_replace` | Points a project item at a new file (or refreshes it) and confirms through `premiere_inspect`. |
 | `premiere_markers_add` | Adds sequence markers, including a beat grid from bpm and beats per bar. |
+| `premiere_clip_edit` | Trims, moves (in time and to another track), enables or disables, renames, links, unlinks or removes (ripple or lift) a placed clip found by time, index or name. |
+| `premiere_razor` | Splits one track or every track of a kind at one or more times with the QE razor. |
+| `premiere_clip_speed` | Sets a clip's speed in percent or the duration it fills, with reverse, audio pitch and ripple; returns the resulting duration. |
+| `premiere_sequence_set` | Sets frame size, frame rate and audio rate, in/out points; nests clips into a new sequence, duplicates, renames or deletes a sequence. |
+| `premiere_tracks` | Adds video and audio tracks, sets mute, lock and target per track, and returns the counts and every track's state. |
+| `premiere_frame_export` | Exports PNG stills of a sequence at given times and returns their paths and sizes. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
 | `premiere_export` | Exports a sequence with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
@@ -64,6 +70,23 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
   templates built in After Effects. The native Essential Graphics titles that ship with Premiere
   (`Basic Title`, `Basic Lower Third`) expose none; a request for text on one is refused.
   `video_track` must be an existing track. The text is confirmed by reading the parameter back.
+- `premiere_clip_edit` addresses a clip by `at`, `position_index` or `name`. `trim_start` and `trim_end`
+  are timeline times and the source in/out follow them; a trim cannot reach past the source.
+  `move_to` shifts only the addressed clip, never its audio or video partner. A move to another
+  track places the clip again with its source range and its other stream, so it loses its effects and
+  its name. `remove` `ripple` removes the clip and moves the later clips of the same track left;
+  other tracks stay as they are. `unlink` takes the whole link group apart and `link_with` links
+  two clips; `linked` in the answer counts the clips in the clip's link group (0 when unlinked).
+- `premiere_razor` cuts at times on the frame grid; the answer counts the clips before and after.
+- `premiere_clip_speed` keeps the source range: 200% halves the duration, 50% doubles it, and a
+  clip that would run into its neighbour stops at it unless `ripple` is set. A clip's linked audio is
+  a separate clip: call it again with `kind` audio.
+- `premiere_sequence_set` nests the listed clips with `createSubsequence`; it copies the clips
+  inside the in/out range into a new sequence and leaves the source clips on their track. The work
+  area bounds cannot be set from a script; in/out points can.
+- `premiere_tracks` adds stereo audio tracks and appends them after the last track.
+- `premiere_frame_export` writes `<folder>/<prefix>_<n>_<time>s.png` and checks each file and its
+  PNG header on disk; a time at or past the sequence end is refused.
 - `premiere_export` and `premiere_sequence_new` take an absolute path or a name from
   `premiere_presets`. A name used by several formats is written `format/name`, for example
   `H264/00 - Match Source - High bitrate`; user presets win over system ones. Export defaults to
@@ -137,6 +160,25 @@ Measured with Premiere Pro 2026 and Photoshop 2026 on macOS.
 11. `importMGT` puts a template on the last track when the offset is past it. Its text parameters
     are JSON strings with a `textEditValue` field, exposed only by templates with an `MGT`
     component.
+12. A `TrackItem` write of `start` or `end` moves one edge and leaves `inPoint` and `outPoint`; a trim
+    sets all four. A start past the current end needs the end set first. `TrackItem.move` takes a
+    time offset and moves only that clip. `TrackItem.remove(ripple)` and QE `remove` delete the
+    clip and leave the gap open.
+13. `Sequence.unlinkSelection` returns false unless the selection holds the whole link group (a
+    linked clip selected through a script does not select its partner); `linkSelection` needs
+    both clips selected. Both need the sequence open (`openSequence`). `getLinkedItems` is null for
+    an unlinked clip.
+14. QE `setSpeed(speed, duration, reverse, maintainPitch, ripple)`: `speed` is a ratio (2 is 200%)
+    and `duration` is the timecode the clip fills; a zero duration keeps the length and is clamped
+    by the source. The clip's `inPoint` and `outPoint` read as timeline times after a speed change.
+15. QE `addTracks(videoCount, afterVideo, audioCount, afterAudio, audioType)` takes 0-based
+    positions of an existing track; a position past the last audio track adds nothing.
+16. QE `exportFramePNG(timecode, path)` writes `path.png` and returns true and the file
+    exists when the call returns. `setWorkAreaInPoint`,
+    `setWorkAreaOutPoint` and QE `setWorkInPoint` return without changing the work area.
+17. `Sequence.setSettings` accepts `videoFrameWidth`, `videoFrameHeight`, `previewFrameWidth`,
+    `previewFrameHeight`, `videoFrameRate` and `audioSampleRate` as `Time` objects in ticks
+    (`254016000000` per second divided by the rate) and applies them to a sequence that has clips.
 
 ## Development
 

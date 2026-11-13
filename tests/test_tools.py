@@ -1,18 +1,21 @@
 import json
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import textwrap
 import time
 import unittest
+import zlib
 from pathlib import Path
 
 from cavi_premiere_mcp import host
 
 JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
-         "media_replace", "markers_add", "mogrt_add", "export", "transitions"]
+         "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
+         "sequence_set", "tracks", "frame_export"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -78,6 +81,41 @@ class RefusalTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "markers or a beat_grid"):
             host.markers_add(None, [], None, 60)
 
+    def test_clip_edit_needs_one_address_and_one_kind_of_edit(self):
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            host.clip_edit(None, "video", 0, 1.0, 0, None, {"enabled": False}, 60)
+        with self.assertRaisesRegex(ValueError, "at least one edit"):
+            host.clip_edit(None, "video", 0, None, 0, None, {"enabled": None}, 60)
+        with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
+            host.clip_edit(None, "video", 0, None, 0, None, {"remove": "lift", "enabled": False}, 60)
+        with self.assertRaisesRegex(ValueError, "trim_end must be after trim_start"):
+            host.clip_edit(None, "video", 0, None, 0, None, {"trim_start": 3, "trim_end": 2}, 60)
+
+    def test_razor_on_one_track_needs_its_kind(self):
+        with self.assertRaisesRegex(ValueError, "kind video or audio"):
+            host.razor(None, [1], "all", 0, 60)
+
+    def test_speed_is_given_as_percent_or_duration(self):
+        for speed, duration in ((None, None), (200, 1.0)):
+            with self.assertRaisesRegex(ValueError, "exactly one of speed or duration"):
+                host.clip_speed(None, "video", 0, None, 0, speed, duration, False, True, False, 60)
+        with self.assertRaisesRegex(ValueError, "exactly one of at, position_index or name"):
+            host.clip_speed(None, "video", 0, None, None, 200, None, False, True, False, 60)
+
+    def test_sequence_change_is_not_empty_and_delete_stands_alone(self):
+        with self.assertRaisesRegex(ValueError, "at least one change"):
+            host.sequence_set(None, {"settings": None, "remove": False}, 60)
+        with self.assertRaisesRegex(ValueError, "remove cannot be combined"):
+            host.sequence_set(None, {"remove": True, "new_name": "x"}, 60)
+
+    def test_tracks_need_something_to_do(self):
+        with self.assertRaisesRegex(ValueError, "tracks to add or track states"):
+            host.tracks(None, 0, 0, [], 60)
+
+    def test_frames_are_exported_to_an_absolute_folder(self):
+        with self.assertRaisesRegex(ValueError, "absolute path"):
+            host.frame_export(None, [1.0], "frames", "f", 60)
+
 
 @unittest.skipUnless(shutil.which("node"), "node is required")
 class ScriptTest(unittest.TestCase):
@@ -96,6 +134,11 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(json.loads(self.node("process.stdout.write(stringify({a: NaN, b: 1}))")),
                          {"a": None, "b": 1})
 
+    def test_timecodes_use_the_frame_grid_and_carry_over_minutes_and_hours(self):
+        out = self.node("process.stdout.write(JSON.stringify([tcOf(2, 25), tcOf(0.52, 25), tcOf(61.5, 25), "
+                        "tcOf(3725, 30), tcOf(1 / 30, 30)]))")
+        self.assertEqual(json.loads(out), ["00:00:02:00", "00:00:00:13", "00:01:01:13", "01:02:05:00", "00:00:00:01"])
+
     def test_every_tool_script_is_valid_javascript(self):
         for tool in TOOLS:
             with tempfile.TemporaryDirectory() as folder:
@@ -104,6 +147,22 @@ class ScriptTest(unittest.TestCase):
                                                                                  "tail.jsx")))
                 result = subprocess.run(["node", "--check", str(script)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, f"{tool}: {result.stderr}")
+
+
+class StillTest(unittest.TestCase):
+    def test_png_size_is_read_from_the_header(self):
+        def chunk(kind, data):
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+        png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 640, 360, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", zlib.compress(b"\x00" + b"\x00\x00\x00" * 640) * 1) + chunk(b"IEND", b""))
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "f.png"
+            path.write_bytes(png)
+            self.assertEqual(host.png_size(path), (640, 360))
+            path.write_bytes(b"not a png at all, just text bytes")
+            with self.assertRaisesRegex(RuntimeError, "Not a PNG"):
+                host.png_size(path)
 
 
 @unittest.skipUnless(shutil.which("lsof"), "lsof is required")

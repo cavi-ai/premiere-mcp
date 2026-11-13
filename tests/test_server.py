@@ -7,7 +7,8 @@ from mcp.client.stdio import stdio_client
 TOOLS = {"premiere_status", "premiere_script", "premiere_cut", "premiere_project", "premiere_inspect",
          "premiere_import", "premiere_sequence_new", "premiere_clip_place", "premiere_clip_props",
          "premiere_transition_add", "premiere_media_replace", "premiere_markers_add", "premiere_mogrt_add",
-         "premiere_export", "premiere_transitions", "premiere_presets"}
+         "premiere_export", "premiere_transitions", "premiere_presets", "premiere_clip_edit", "premiere_razor",
+         "premiere_clip_speed", "premiere_sequence_set", "premiere_tracks", "premiere_frame_export"}
 
 
 class ProtocolTest(unittest.IsolatedAsyncioTestCase):
@@ -39,6 +40,12 @@ class ProtocolTest(unittest.IsolatedAsyncioTestCase):
                 ("premiere_sequence_new", {"name": "S"}, "exactly one of clip or preset"),
                 ("premiere_markers_add", {}, "markers or a beat_grid"),
                 ("premiere_clip_props", {"scale": 50}, "exactly one of at or position_index"),
+                ("premiere_clip_edit", {"enabled": False}, "exactly one of at, position_index or name"),
+                ("premiere_clip_edit", {"position_index": 0}, "at least one edit"),
+                ("premiere_clip_speed", {"position_index": 0}, "exactly one of speed or duration"),
+                ("premiere_sequence_set", {}, "at least one change"),
+                ("premiere_tracks", {}, "tracks to add or track states"),
+                ("premiere_frame_export", {"times": [1], "folder": "frames"}, "absolute path"),
             ]:
                 reply = await client.call_tool(name, args)
                 self.assertTrue(reply.is_error, name)

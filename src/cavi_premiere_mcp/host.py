@@ -400,6 +400,80 @@ def transition_add(sequence, kind, track, at, position_index, transition, frames
     return invoke("transition_add", args, timeout)
 
 
+def one_clip(at, position_index, name=None):
+    if sum(value is not None for value in (at, position_index, name)) != 1:
+        raise ValueError("Give exactly one of at, position_index or name")
+
+
+def clip_edit(sequence, kind, track, at, position_index, name, edit, timeout):
+    """Trim, move, enable, rename, link, unlink or remove one placed clip."""
+    one_clip(at, position_index, name)
+    if edit.get("remove") and any(v is not None and k != "remove" for k, v in edit.items()):
+        raise ValueError("remove cannot be combined with other edits")
+    if all(v is None for v in edit.values()):
+        raise ValueError("Give at least one edit")
+    start, end = edit.get("trim_start"), edit.get("trim_end")
+    if start is not None and end is not None and end <= start:
+        raise ValueError("trim_end must be after trim_start")
+    args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
+            "name": name, **edit}
+    return invoke("clip_edit", args, timeout)
+
+
+def razor(sequence, times, kind, track, timeout):
+    if track is not None and kind == "all":
+        raise ValueError("Give kind video or audio with a track")
+    return invoke("razor", {"sequence": sequence, "times": sorted(set(times)), "kind": kind, "track": track}, timeout)
+
+
+def clip_speed(sequence, kind, track, at, position_index, speed, duration, reverse, maintain_pitch, ripple, timeout):
+    one_clip(at, position_index)
+    if (speed is None) == (duration is None):
+        raise ValueError("Give exactly one of speed or duration")
+    args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
+            "speed": speed, "duration": duration, "reverse": reverse, "maintain_pitch": maintain_pitch,
+            "ripple": ripple}
+    return invoke("clip_speed", args, timeout)
+
+
+def sequence_set(sequence, change, timeout):
+    """Settings, in/out points, nest, duplicate, rename or delete a sequence."""
+    if all(v is None or v is False for v in change.values()):
+        raise ValueError("Give at least one change")
+    if change.get("remove") and any(v is not None and v is not False for k, v in change.items() if k != "remove"):
+        raise ValueError("remove cannot be combined with other changes")
+    return invoke("sequence_set", {"sequence": sequence, **change}, timeout)
+
+
+def tracks(sequence, add_video, add_audio, states, timeout):
+    if not (add_video or add_audio or states):
+        raise ValueError("Give tracks to add or track states to set")
+    return invoke("tracks", {"sequence": sequence, "add_video": add_video, "add_audio": add_audio,
+                             "tracks": states}, timeout)
+
+
+def png_size(path):
+    with open(path, "rb") as file:
+        head = file.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise RuntimeError(f"Not a PNG: {path}")
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
+
+def frame_export(sequence, times, folder, prefix, timeout):
+    """PNG stills of a sequence at the given seconds; every file is checked on disk."""
+    folder = absolute(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    paths = [str(folder / f"{prefix}_{i + 1:03d}_{time:.3f}s") for i, time in enumerate(times)]
+    result = invoke("frame_export", {"sequence": sequence, "times": list(times), "paths": paths}, timeout)
+    for frame in result["frames"]:
+        path = Path(frame["path"])
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError(f"Premiere wrote no frame at {path}")
+        frame["width"], frame["height"] = png_size(path)
+    return result
+
+
 def media_replace(item, path, timeout):
     """Relink a project item to a new file, then confirm through inspect that the project points at it."""
     target = existing(path)

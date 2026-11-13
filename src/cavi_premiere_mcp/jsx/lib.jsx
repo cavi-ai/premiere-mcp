@@ -55,6 +55,10 @@ function save(path, report) {
     file.close();
 }
 
+function given(value) {
+    return value !== null && value !== undefined;
+}
+
 function fail(message) {
     throw new Error(message);
 }
@@ -199,4 +203,40 @@ function closeAll() {
     for (var i = app.projects.numProjects - 1; i >= 0; i--) {
         app.projects[i].closeDocument(0, 0);
     }
+}
+
+function tcOf(seconds, fps) {
+    var frames = Math.round(seconds * fps), s = Math.floor(frames / fps), m = Math.floor(s / 60);
+
+    function two(n) {
+        return (n < 10 ? "0" : "") + n;
+    }
+    return two(Math.floor(m / 60)) + ":" + two(m % 60) + ":" + two(s % 60) + ":" + two(frames % fps);
+}
+
+function frameRate(sequence) {
+    return Math.round(TICKS / Number(sequence.timebase));
+}
+
+// The QE item of a clip: the nth item of type Clip on the QE track is the nth clip of the track.
+function qeItem(sequence, kind, index, clip) {
+    var position = -1, n = 0, i, lane, item;
+    each(track(sequence, kind, index).clips, function (candidate, k) {
+        if (candidate.nodeId === clip.nodeId) {
+            position = k;
+        }
+    });
+    app.enableQE();
+    lane = kind === "audio" ? qe.project.getActiveSequence().getAudioTrackAt(index)
+        : qe.project.getActiveSequence().getVideoTrackAt(index);
+    for (i = 0; i < lane.numItems; i++) {
+        item = lane.getItemAt(i);
+        if (item.type === "Clip") {
+            if (n === position) {
+                return item;
+            }
+            n += 1;
+        }
+    }
+    fail("QE has no item for the clip");
 }
