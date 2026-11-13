@@ -16,7 +16,7 @@ JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
          "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
          "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions", "effects", "effect_add", "effect_set",
-         "clip_fit", "items"]
+         "clip_fit", "items", "markers_edit", "gaps", "range_remove", "bins"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -423,3 +423,29 @@ class MailboxTest(unittest.TestCase):
             with self.assertRaisesRegex(host.NotReady, "approve it in Bridge Settings > Startup Scripts"):
                 host.mailbox_send("premierepro", "'ready'", 5, wait=0.2, box=Path(folder))
             self.assertEqual(list(Path(folder).iterdir()), [])
+
+
+class TimelineRefusalTest(unittest.TestCase):
+    def test_bad_input_is_refused_before_premiere_is_called(self):
+        from cavi_premiere_mcp import timeline
+
+        def launch(app):
+            raise RuntimeError("an app was launched")
+
+        self.addCleanup(setattr, host, "start", host.start)
+        host.start = launch
+        cases = (
+            (lambda: timeline.range_remove(None, 5, 5, "extract", 60), "end must be after start"),
+            (lambda: timeline.markers_edit(None, "delete", None, None, False, None, None, None, None, 60),
+             "exactly one of index, at or all"),
+            (lambda: timeline.markers_edit(None, "update", 0, None, False, None, None, None, None, 60),
+             "Give name, comment, move_to or duration"),
+            (lambda: timeline.markers_edit(None, "update", None, None, True, "x", None, 2.0, None, 60),
+             "move_to needs one marker"),
+            (lambda: timeline.bins("create", None, None, None, None, False, 60), "new bin's name"),
+            (lambda: timeline.bins("rename", "A", None, None, None, False, 60), "Give new_name"),
+            (lambda: timeline.bins("move", "A", None, None, [], False, 60), "Give items to move"),
+        )
+        for call, message in cases:
+            with self.assertRaisesRegex(ValueError, message):
+                call()

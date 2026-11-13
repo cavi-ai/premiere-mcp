@@ -827,9 +827,14 @@ async def premiere_captions(file: str, start: Seconds = 0,
     return await asyncio.to_thread(host.captions, sequence, file, start, format, timeout)
 
 
+from . import timeline  # noqa: E402,F401  registers the timeline tools
+
+
 def main():
     mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
-    main()
+    from cavi_premiere_mcp import server  # the imported module owns the tools; __main__ would duplicate them
+
+    server.main()

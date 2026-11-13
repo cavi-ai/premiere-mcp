@@ -55,6 +55,10 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_clip_fit` | Sets a video clip's Motion Scale and centers it so the source fits or fills the sequence frame. |
 | `premiere_items` | Renames, moves to a bin, labels, subclips, interprets footage, attaches a proxy to, sets metadata on or deletes (bins) a project item. |
 | `premiere_scene_detect` | Finds hard cuts inside a placed clip from its media and reports them as timeline seconds; can split the clip or add markers there. |
+| `premiere_markers_edit` | Lists sequence markers, or updates (name, comment, new start, duration) or deletes one by index or time, or all. |
+| `premiere_gaps` | Lists empty gaps across the unlocked tracks and closes them, moving later clips left so tracks stay in sync. |
+| `premiere_range_remove` | Cuts a time range out of every unlocked track; `extract` closes the hole, `lift` leaves it. |
+| `premiere_bins` | Creates, renames and deletes project bins and moves items into them. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
 | `premiere_export` | Exports a sequence (whole, in/out range or work area, optional caption burn-in) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
