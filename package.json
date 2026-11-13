@@ -1,0 +1,13 @@
+{
+  "name": "cavi-premiere-mcp-evals",
+  "private": true,
+  "description": "MCP evaluation harness for cavi-premiere-mcp",
+  "license": "MIT",
+  "scripts": {
+    "eval:protocol": "uv run --locked python evals/run.py protocol",
+    "eval:core": "uv run --locked python evals/run.py core"
+  },
+  "devDependencies": {
+    "@cavi-ai/mcp-eval": "github:cavi-ai/mcp-eval#main"
+  }
+}

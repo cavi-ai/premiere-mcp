@@ -1,0 +1,10 @@
+{
+  "project": "/work/cut/cut.prproj",
+  "master": "/work/cut/master.mov",
+  "audio": "/work/score.wav",
+  "clips": [
+    {"file": "/work/pattern.mp4", "start": 0, "in_point": 0, "out_point": 2},
+    {"file": "/work/bars.mp4", "start": 2, "in_point": 0.5, "out_point": 3,
+     "transition": {"kind": "cross_dissolve", "frames": 12}}
+  ]
+}
