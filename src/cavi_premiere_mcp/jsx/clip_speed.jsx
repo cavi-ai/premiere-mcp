@@ -16,6 +16,9 @@ function run(A, report) {
         speed = now * current / length;
     }
     length = Math.round(length * fps) / fps;
+    if (!isFinite(speed) || speed <= 0 || !(length > 0)) {
+        fail("The clip would last " + length + " s at that speed; it must be at least one frame");
+    }
     if (!item.setSpeed(speed, tcOf(length, fps), A.reverse, A.maintain_pitch, A.ripple)) {
         fail("Premiere refused to set the speed");
     }

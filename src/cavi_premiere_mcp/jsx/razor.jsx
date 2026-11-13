@@ -27,6 +27,15 @@ function run(A, report) {
     if (A.kind !== "video") {
         add("audio", sequence.audioTracks.numTracks);
     }
+    if (!lanes.length) {
+        fail("No " + (A.kind === "all" ? "" : A.kind + " ") + "track " + A.track + " to cut");
+    }
+    // The QE razor is not bounds checked: a time outside the sequence is refused here, not passed on.
+    for (i = 0; i < A.times.length; i++) {
+        if (A.times[i] < 0 || A.times[i] >= endSeconds(sequence)) {
+            fail("Time " + A.times[i] + " s is outside the sequence (0 to " + endSeconds(sequence) + " s)");
+        }
+    }
     before = clips();
     for (i = 0; i < A.times.length; i++) {
         for (j = 0; j < lanes.length; j++) {

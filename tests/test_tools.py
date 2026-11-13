@@ -16,7 +16,7 @@ JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
          "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
          "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions", "effects", "effect_add", "effect_set",
-         "clip_fit", "items"]
+         "clip_fit", "items", "cut"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -381,10 +381,6 @@ class PresetTest(unittest.TestCase):
         self.assertEqual((found.name, found.is_file()), ("HD 1080p 25 fps.sqpreset", True))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MailboxTest(unittest.TestCase):
     def serve(self, box, reply):
         import threading
@@ -423,3 +419,7 @@ class MailboxTest(unittest.TestCase):
             with self.assertRaisesRegex(host.NotReady, "approve it in Bridge Settings > Startup Scripts"):
                 host.mailbox_send("premierepro", "'ready'", 5, wait=0.2, box=Path(folder))
             self.assertEqual(list(Path(folder).iterdir()), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

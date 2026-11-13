@@ -66,6 +66,9 @@ function run(A, report) {
         if (ne <= ns) {
             fail("trim_end must be after trim_start");
         }
+        if (!(stop > begin)) {
+            fail("The clip has no source range to trim");
+        }
         if (begin + (ns - start) / ratio < -0.0005) {
             fail("The clip has no source before " + begin + " s to extend its start to " + ns + " s");
         }
@@ -85,6 +88,10 @@ function run(A, report) {
         if (given(A.to_track) && A.to_track !== index) {
             // A clip cannot change tracks in place: it is placed again on the target track with its source range.
             lane = track(sequence, kind, A.to_track);
+            // The clip is removed before it is placed again, so a refusal after that would lose it.
+            if (lane.isLocked()) {
+                fail("The " + kind + " track " + A.to_track + " is locked");
+            }
             source = clip.projectItem;
             was = {name: clip.name, enabled: !clip.disabled, begin: secs(clip.inPoint), stop: secs(clip.outPoint)};
             clip.remove(false, false);

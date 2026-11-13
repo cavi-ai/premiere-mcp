@@ -50,7 +50,10 @@ function stringify(value) {
 function save(path, report) {
     var file = new File(path);
     file.encoding = "UTF-8";
-    file.open("w");
+    file.lineFeed = "Unix";
+    if (!file.open("w")) {
+        fail("Cannot write the report to " + path);
+    }
     file.write(stringify(report));
     file.close();
 }

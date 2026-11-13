@@ -1,8 +1,8 @@
 """Premiere Pro over an Adobe Bridge BridgeTalk relay, the ProRes cut engine and frame checks."""
 
 import json
+import math
 import os
-import plistlib
 import re
 import shutil
 import tempfile
@@ -11,14 +11,17 @@ import uuid
 from fractions import Fraction
 from pathlib import Path
 
+from cavi_mcp_core import apps
 from cavi_mcp_core.proc import diagnostics, run_sync
+from cavi_mcp_core.server import need
 
 JSX = Path(__file__).with_name("jsx")
-CUT = JSX / "cut.jsx"
 READY_TIMEOUT = 300
 ENCODER_SETTLE = 40
 BRIDGE_PING = 30
 BRIDGE_LAUNCH = 60
+# Seconds after Bridge starts during which a silent relay means Bridge is still loading its startup scripts.
+BRIDGE_STARTUP = 240
 RELAY = "cavi-bridge-relay.jsx"
 RELAY_SOURCE = JSX / "bridge_relay.jsx"
 MAILBOX = Path.home() / "Library/Application Support/cavi-bridge-relay"
@@ -27,25 +30,40 @@ APPROVAL = ("Adobe Bridge has not run the cavi-bridge-relay startup script: appr
 PRESET = "*.app/Contents/MediaIO/systempresets/3F3F3F3F_4D6F6F56/Apple ProRes 422 HQ.epr"
 TRANSITIONS = {"cross_dissolve": "Cross Dissolve", "film_dissolve": "Film Dissolve",
                "dip_to_white": "Dip to White", "dip_to_black": "Dip to Black"}
+# The start of every answer that reports a failure instead of a script's value.
+FAILED = "ERROR "
+# A job takes at most 7200 s; mailbox files older than a day belong to calls that are gone.
+MAILBOX_KEEP = 24 * 3600
+# More markers than this in one call would make a script too large for Premiere to run.
+MAX_MARKERS = 5000
+
+# (name, bundle identifier, glob under /Applications, environment override)
+PREMIERE = ("Adobe Premiere Pro", "com.adobe.PremierePro.26",
+            "Adobe Premiere Pro 20*/Adobe Premiere Pro 20*.app", "CAVI_PREMIERE_APP")
+BRIDGE = ("Adobe Bridge", "com.adobe.bridge", "Adobe Bridge 20*/Adobe Bridge 20*.app", "CAVI_BRIDGE_APP")
+MEDIA_ENCODER = ("Adobe Media Encoder", "com.adobe.ame.application.26",
+                 "Adobe Media Encoder 20*/Adobe Media Encoder 20*.app", "CAVI_MEDIA_ENCODER_APP")
 
 
 class NotReady(RuntimeError):
     """Premiere Pro never answered the relay."""
 
 
-def newest(pattern):
-    found = sorted(Path("/Applications").glob(pattern))
-    if not found:
-        raise ValueError(f"No /Applications/{pattern}")
-    return found[-1]
+def application(spec):
+    """The installed .app of an Adobe application: the override, else the newest under /Applications."""
+    return apps.bundle(*spec).path
 
 
 def premiere():
-    return newest("Adobe Premiere Pro 20*/Adobe Premiere Pro 20*.app")
+    return application(PREMIERE)
 
 
 def bridge():
-    return newest("Adobe Bridge 20*/Adobe Bridge 20*.app")
+    return application(BRIDGE)
+
+
+def media_encoder():
+    return application(MEDIA_ENCODER)
 
 
 def startup_folder():
@@ -74,29 +92,45 @@ def bridge_install():
             "next": "Restart Adobe Bridge, then approve cavi-bridge-relay in Bridge Settings > Startup Scripts once"}
 
 
-def media_encoder():
-    return newest("Adobe Media Encoder 20*/Adobe Media Encoder 20*.app")
-
-
 def prores_preset():
-    return newest("Adobe Premiere Pro 20*/" + PRESET)
+    found = sorted(premiere().parent.glob(PRESET))
+    if not found:
+        raise ValueError("This Premiere Pro has no Apple ProRes 422 HQ export preset")
+    return found[-1]
 
 
 def running(app):
     """Pids of the app's main executable; its helpers can outlive it."""
-    command = f"{app.name}/Contents/MacOS/{app.stem}$"
-    return [int(pid) for pid in run_sync(["pgrep", "-f", command], 10).stdout.split()]
+    executable = apps.bundle_executable(app)
+    return [] if executable is None else [process.pid for process in apps.processes(executable)]
 
 
-def describe(app):
-    info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
-    return {"app": str(app), "version": info.get("CFBundleShortVersionString", ""), "pids": running(app)}
+def describe(spec):
+    """An installed application's path, version and pids, or why it is not available."""
+    try:
+        app = application(spec)
+    except (ValueError, OSError) as failure:
+        return {"app": None, "version": "", "pids": [], "error": str(failure)}
+    return {"app": str(app), "version": apps.bundle_info(app).get("CFBundleShortVersionString", ""),
+            "pids": running(app)}
 
 
 def status():
-    return {"premiere": describe(premiere()), "bridge": describe(bridge()),
-            "relay": relay_state(), "mailbox": str(MAILBOX),
-            "prores_preset": str(prores_preset())}
+    """What is installed and running; a missing application is reported in its entry, never raised."""
+    try:
+        preset = str(prores_preset())
+    except (ValueError, OSError):
+        preset = None
+    return {"premiere": describe(PREMIERE), "bridge": describe(BRIDGE), "media_encoder": describe(MEDIA_ENCODER),
+            "relay": relay_state(), "mailbox": str(MAILBOX), "prores_preset": preset}
+
+
+def literal(value):
+    """JSON text of a value for a script global; NaN and infinity are not JSON and are refused."""
+    try:
+        return json.dumps(value, allow_nan=False)
+    except ValueError:
+        raise ValueError("Every number must be finite") from None
 
 
 def start(app):
@@ -107,11 +141,25 @@ def start(app):
             raise RuntimeError(f"{app.stem} did not launch: " + diagnostics(result))
 
 
+def sweep(box, age=MAILBOX_KEEP):
+    """Remove mailbox files left by calls that gave up before their job finished."""
+    for leftover in box.iterdir():
+        if leftover.suffix not in (".job", ".part", ".reply"):
+            continue
+        try:
+            stale = time.time() - leftover.stat().st_mtime > age
+        except FileNotFoundError:  # another call removed it
+            continue
+        if stale:
+            leftover.unlink(missing_ok=True)
+
+
 def mailbox_send(target, body, timeout, wait=None, box=None):
     """Hand a job to the Bridge relay and wait for its reply: (ok, result). wait is how long to wait
     for the relay to pick the job up before raising the approval message."""
     box = box or MAILBOX
     box.mkdir(parents=True, exist_ok=True)
+    sweep(box)
     name = uuid.uuid4().hex
     job, reply = box / f"{name}.job", box / f"{name}.reply"
     part = box / f"{name}.part"
@@ -123,13 +171,22 @@ def mailbox_send(target, body, timeout, wait=None, box=None):
             if time.monotonic() > deadline:
                 if wait is not None:
                     raise NotReady(APPROVAL)
-                raise TimeoutError(f"No answer from {target} within {timeout} s")
+                raise TimeoutError(f"No answer from {target} within {timeout} s; the job may still be running in it")
             time.sleep(0.05)
         head, _, result = reply.read_text(encoding="utf-8").partition("\n")
         return head == "ok", result
     finally:
         for leftover in (job, part, reply):
             leftover.unlink(missing_ok=True)
+
+
+def bridge_age(app):
+    """Seconds since the oldest Bridge process started; infinite when none runs."""
+    executable = apps.bundle_executable(app)
+    # ps prints local start times such as "Fri Nov 13 14:46:02 2026".
+    started = [time.mktime(time.strptime(process.started))
+               for process in (apps.processes(executable) if executable else [])]
+    return time.time() - min(started) if started else math.inf
 
 
 def relay(body, timeout, target="premierepro"):
@@ -141,7 +198,18 @@ def relay(body, timeout, target="premierepro"):
     # A Premiere that is still starting refuses messages with "TARGET COULD NOT BE LAUNCHED".
     deadline = time.monotonic() + READY_TIMEOUT
     wait = BRIDGE_PING + (BRIDGE_LAUNCH if launched else 0)
-    while (answer := send("'ready'", 15, target, wait)) != "ready":
+    while True:
+        try:
+            answer = send("'ready'", 15, target, wait)
+        except NotReady:
+            # A Bridge that started moments ago has not run its startup scripts yet; that is not a missing approval.
+            if bridge_age(app) >= BRIDGE_STARTUP:
+                raise
+            answer = "Adobe Bridge is still starting"
+        except TimeoutError as failure:  # Premiere is busy or frozen; no job has been sent yet
+            answer = str(failure)
+        if answer == "ready":
+            break
         wait = None
         if time.monotonic() > deadline:
             raise NotReady(f"Premiere Pro did not answer within {READY_TIMEOUT} s: {answer}")
@@ -160,9 +228,9 @@ def send_file(body, timeout, target="premierepro"):
 
 
 def send(body, timeout, target="premierepro", wait=None):
-    """The target's last value, or "ERROR <message>"; the relay answers through the mailbox."""
+    """The target's last value, or FAILED followed by the message; the relay answers through the mailbox."""
     ok, result = mailbox_send(target, body, timeout + 30, wait)
-    return result if ok else "ERROR " + result
+    return result if ok else FAILED + result
 
 
 def absolute(path, suffix=None):
@@ -187,15 +255,25 @@ def run_script(script, args, report, timeout):
     script = absolute(script, ".jsx")
     report = absolute(report, ".json") if report else None
     before = fingerprint(report) if report else None
-    body = (f"var CAVI_ARGS = {json.dumps(args)};\nvar CAVI_REPORT = {json.dumps(report and str(report))};\n"
-            + script.read_text())
+    body = (f"var CAVI_ARGS = {literal(args)};\nvar CAVI_REPORT = {literal(report and str(report))};\n"
+            + script.read_text(encoding="utf-8"))
     answer = relay(body, timeout)
+    if answer.startswith(FAILED):
+        raise RuntimeError(f"Premiere script failed: {answer.removeprefix(FAILED)}")
     result = {"answer": answer}
     if report:
         if fingerprint(report) in (None, before):
             raise RuntimeError(f"Premiere script wrote no report to {report}; answer: {answer}")
-        result["report"] = json.loads(report.read_text())
+        result["report"] = read_report(report)
     return result
+
+
+def read_report(path):
+    """A job's JSON report; a half-written one is an error naming the file."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as failure:
+        raise RuntimeError(f"Premiere left an unreadable report at {path}: {failure}") from None
 
 
 def held(path):
@@ -222,9 +300,7 @@ def finish(body, report, master, timeout):
     before = fingerprint(report)
     try:
         answer = relay(body, timeout)
-    except NotReady:
-        raise
-    except Exception as failure:  # the relay or osascript gave up; the export may still run
+    except TimeoutError as failure:  # the job's answer never came; the export may still run
         answer = f"{type(failure).__name__}: {failure}"
     deadline = time.monotonic() + timeout
     while True:
@@ -239,11 +315,16 @@ def finish(body, report, master, timeout):
     return result
 
 
-def ffprobe():
-    found = shutil.which("ffprobe", path=os.environ.get("PATH", "") + ":/opt/homebrew/bin:/usr/local/bin")
+def ffmpeg_tool(name):
+    """An FFmpeg command-line tool from PATH or the usual Homebrew folders."""
+    found = shutil.which(name, path=os.environ.get("PATH", "") + ":/opt/homebrew/bin:/usr/local/bin")
     if not found:
-        raise ValueError("Install ffprobe (FFmpeg) to read frame rates and verify masters")
+        raise ValueError(f"Install {name} (FFmpeg) to read frame rates, find scene cuts and verify masters")
     return found
+
+
+def ffprobe():
+    return ffmpeg_tool("ffprobe")
 
 
 def probe(path, entries):
@@ -284,34 +365,37 @@ def cut(project, master, clips, audio, replace, timeout):
     if audio and not audio.is_file():
         raise ValueError(f"No audio file at {audio}")
     report = project.with_suffix(".report.json")
-    existing = [path for path in (project, master, report) if path.exists()]
-    if existing and not replace:
-        raise ValueError("Already exists (pass replace=true): " + ", ".join(map(str, existing)))
+    present = [path for path in (project, master, report) if path.exists()]
+    if present and not replace:
+        raise ValueError("Already exists (pass replace=true): " + ", ".join(map(str, present)))
     rate = Fraction(probe(absolute(clips[0]["file"]), "r_frame_rate"))
     planned, end = plan(clips, rate)
-    for path in existing:
+    for path in present:
         path.unlink()
     project.parent.mkdir(parents=True, exist_ok=True)
     master.parent.mkdir(parents=True, exist_ok=True)
     args = {"project": str(project), "clips": planned, "audio": audio and str(audio), "master": str(master),
             "preset": str(prores_preset()), "fps": round(rate), "report": str(report)}
-    body = f"var CAVI_ARGS = {json.dumps(args)};\n" + CUT.read_text()
-    result = finish(body, report, master, timeout)
+    result = finish(tool_script("cut", args), report, master, timeout)
     return {"project": str(project), "master": str(master), "fps": str(rate),
             "frames": int(probe(master, "nb_frames")), "cut_frames": end,
             "transitions": result["transitions"], "warnings": result["warnings"]}
+
+
+def tool_script(tool, args):
+    """The text of jsx/<tool>.jsx between the shared helpers and the report writer, with its arguments."""
+    parts = [(JSX / name).read_text(encoding="utf-8") for name in ("lib.jsx", f"{tool}.jsx", "tail.jsx")]
+    return f"var CAVI_ARGS = {literal(args)};\n" + "\n".join(parts)
 
 
 def invoke(tool, args, timeout=300):
     """Run jsx/<tool>.jsx in Premiere with the shared helpers and return its report."""
     with tempfile.TemporaryDirectory(prefix="premiere-report-") as folder:
         report = Path(folder) / "report.json"
-        body = (f"var CAVI_ARGS = {json.dumps({**args, 'report': str(report)})};\n"
-                + "\n".join((JSX / name).read_text() for name in ("lib.jsx", f"{tool}.jsx", "tail.jsx")))
-        answer = relay(body, timeout)
+        answer = relay(tool_script(tool, {**args, "report": str(report)}), timeout)
         if not report.is_file():
             raise RuntimeError(f"Premiere {tool} wrote no report; answer: {answer}")
-        result = json.loads(report.read_text())
+        result = read_report(report)
     if answer != "OK" or result["errors"]:
         raise RuntimeError(f"Premiere {tool} failed: " + "; ".join(result["errors"] or [answer]))
     return result
@@ -333,9 +417,9 @@ def project(action, path, replace, save, close_others, timeout):
     """Open, create, save or close a Premiere project."""
     args = {"action": action, "path": None, "save": save, "close_others": close_others}
     if action == "open":
-        args["path"] = str(existing(path, ".prproj"))
+        args["path"] = str(existing(need(path, "path", action), ".prproj"))
     elif action == "new":
-        target = absolute(path, ".prproj")
+        target = absolute(need(path, "path", action), ".prproj")
         if target.exists() and not replace:
             raise ValueError(f"Already exists (pass replace=true): {target}")
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -391,6 +475,10 @@ def presets(kind):
             found.append({"name": path.stem, "format": "user" if source == "user" else format_code(path.parent.name) or path.parent.name,
                           "source": source, "path": str(path)})
     return found
+
+
+def all_presets():
+    return {"export": presets("export"), "sequence": presets("sequence")}
 
 
 def resolve_preset(kind, preset):
@@ -514,8 +602,10 @@ def png_size(path):
 def frame_export(sequence, times, folder, prefix, timeout):
     """PNG stills of a sequence at the given seconds; every file is checked on disk."""
     folder = absolute(folder)
+    if prefix in ("", ".", "..") or Path(prefix).name != prefix:
+        raise ValueError(f"prefix is a file name start, not a path: {prefix}")
     folder.mkdir(parents=True, exist_ok=True)
-    paths = [str(folder / f"{prefix}_{i + 1:03d}_{time:.3f}s") for i, time in enumerate(times)]
+    paths = [str(folder / f"{prefix}_{i + 1:03d}_{seconds:.3f}s") for i, seconds in enumerate(times)]
     result = invoke("frame_export", {"sequence": sequence, "times": list(times), "paths": paths}, timeout)
     for frame in result["frames"]:
         path = Path(frame["path"])
@@ -575,26 +665,41 @@ def items(item, change, timeout):
     return result
 
 
-def scene_times(media, threshold):
+def scene_times(media, threshold, timeout=3600):
     """Source times of hard cuts in a movie, from ffmpeg's scene score."""
-    result = run_sync([ffprobe().replace("ffprobe", "ffmpeg"), "-hide_banner", "-i", str(media), "-an", "-vf",
-                       f"select='gt(scene,{threshold})',showinfo", "-f", "null", "-"], 3600)
+    result = run_sync([ffmpeg_tool("ffmpeg"), "-hide_banner", "-i", str(media), "-an", "-vf",
+                       f"select='gt(scene,{threshold})',showinfo", "-f", "null", "-"], timeout)
+    if result.returncode:
+        raise RuntimeError(f"ffmpeg could not read {media}: " + diagnostics(result))
     return [float(m) for m in re.findall(r"pts_time:([0-9.]+)", result.stderr)]
+
+
+def video_clip(listed, sequence, track, at, position_index):
+    """The video clip at a time or position in the first of the inspected sequences, or a ValueError."""
+    if not listed:
+        raise ValueError(f"No sequence named {sequence}" if sequence else "The project has no sequence")
+    if sequence is None and len(listed) > 1:
+        raise ValueError("Give the sequence by name")
+    lanes = listed[0]["video"]
+    if track >= len(lanes):
+        raise ValueError(f"No video track {track} (the sequence has {len(lanes)})")
+    clips = lanes[track]["clips"]
+    if position_index is not None:
+        if position_index >= len(clips):
+            raise ValueError(f"No clip at position {position_index} on video track {track} ({len(clips)} clips)")
+        clip = clips[position_index]
+    else:
+        clip = next((c for c in clips if c["start"] - 0.0005 <= at < c["end"] - 0.0005), None)
+    if clip is None or not clip["media_path"]:
+        raise ValueError("No clip with media at that place")
+    return clip
 
 
 def scene_detect(sequence, track, at, position_index, threshold, apply, include_audio, timeout):
     """Cut times inside a placed clip, as timeline seconds; optionally razor or mark them."""
     one_clip(at, position_index)
-    listed = inspect(sequence, timeout)["sequences"]
-    if sequence is None and len(listed) > 1:
-        raise ValueError("Give the sequence by name")
-    lane = listed[0]["video"][track]
-    clips = lane["clips"]
-    clip = clips[position_index] if position_index is not None else next(
-        (c for c in clips if c["start"] - 0.0005 <= at < c["end"] - 0.0005), None)
-    if clip is None or not clip["media_path"]:
-        raise ValueError("No clip with media at that place")
-    times = [clip["start"] + t - clip["in_point"] for t in scene_times(clip["media_path"], threshold)
+    clip = video_clip(inspect(sequence, timeout)["sequences"], sequence, track, at, position_index)
+    times = [clip["start"] + t - clip["in_point"] for t in scene_times(clip["media_path"], threshold, timeout)
              if clip["in_point"] < t < clip["out_point"]]
     times = [round(t, 3) for t in times]
     result = {"clip": clip["name"], "cuts": times, "applied": apply}
@@ -627,6 +732,8 @@ def beat_grid(bpm, beats_per_bar, start, end):
     """One marker per beat from start up to end; the first beat of each bar is the downbeat."""
     if end <= start:
         raise ValueError("end must be after start")
+    if (beats := math.ceil((end - start) * bpm / 60)) > MAX_MARKERS:
+        raise ValueError(f"beat_grid would add {beats} markers; the limit is {MAX_MARKERS}")
     markers, beat = [], 0
     while (time_s := start + beat * 60 / bpm) < end - 1e-9:
         bar, number = divmod(beat, beats_per_bar)
@@ -642,6 +749,8 @@ def markers_add(sequence, markers, grid, timeout):
         found += beat_grid(grid["bpm"], grid["beats_per_bar"], grid["start"], grid["end"])
     if not found:
         raise ValueError("Give markers or a beat_grid")
+    if len(found) > MAX_MARKERS:
+        raise ValueError(f"{len(found)} markers in one call; the limit is {MAX_MARKERS}")
     return invoke("markers_add", {"sequence": sequence, "markers": found}, timeout)
 
 
@@ -698,9 +807,7 @@ def render(tool, sequence, master, preset, range_, replace, timeout, burn_captio
         report = Path(folder) / "report.json"
         args = {"sequence": sequence, "master": str(master), "preset": str(preset), "range": range_,
                 "report": str(report)}
-        body = (f"var CAVI_ARGS = {json.dumps(args)};\n"
-                + "\n".join((JSX / name).read_text() for name in ("lib.jsx", f"{tool}.jsx", "tail.jsx")))
-        result = finish(body, report, master, timeout)
+        result = finish(tool_script(tool, args), report, master, timeout)
     frames = int(probe(master, "nb_frames"))
     expected = round(result["span"] * result["fps"])
     return {"sequence": result["sequence"], "master": str(master), "fps": result["fps"], "frames": frames,
