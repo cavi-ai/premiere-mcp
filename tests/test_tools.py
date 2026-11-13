@@ -16,7 +16,7 @@ JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
          "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
          "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions", "effects", "effect_add", "effect_set",
-         "clip_fit", "items"]
+         "clip_fit", "items", "cut", "markers_edit", "gaps", "range_remove", "bins", "clip_slip"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -381,10 +381,6 @@ class PresetTest(unittest.TestCase):
         self.assertEqual((found.name, found.is_file()), ("HD 1080p 25 fps.sqpreset", True))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MailboxTest(unittest.TestCase):
     def serve(self, box, reply):
         import threading
@@ -423,3 +419,84 @@ class MailboxTest(unittest.TestCase):
             with self.assertRaisesRegex(host.NotReady, "approve it in Bridge Settings > Startup Scripts"):
                 host.mailbox_send("premierepro", "'ready'", 5, wait=0.2, box=Path(folder))
             self.assertEqual(list(Path(folder).iterdir()), [])
+
+
+class TimelineRefusalTest(unittest.TestCase):
+    def test_bad_input_is_refused_before_premiere_is_called(self):
+        from cavi_premiere_mcp import timeline
+
+        def launch(app):
+            raise RuntimeError("an app was launched")
+
+        self.addCleanup(setattr, host, "start", host.start)
+        host.start = launch
+        cases = (
+            (lambda: timeline.range_remove(None, 5, 5, "extract", 60), "end must be after start"),
+            (lambda: timeline.markers_edit(None, "delete", None, None, False, None, None, None, None, 60),
+             "exactly one of index, at or all"),
+            (lambda: timeline.markers_edit(None, "update", 0, None, False, None, None, None, None, 60),
+             "Give name, comment, move_to or duration"),
+            (lambda: timeline.markers_edit(None, "update", None, None, True, "x", None, 2.0, None, 60),
+             "move_to needs one marker"),
+            (lambda: timeline.bins("create", None, None, None, None, False, 60), "new bin's name"),
+            (lambda: timeline.bins("rename", "A", None, None, None, False, 60), "Give new_name"),
+            (lambda: timeline.bins("move", "A", None, None, [], False, 60), "Give items to move"),
+        )
+        for call, message in cases:
+            with self.assertRaisesRegex(ValueError, message):
+                call()
+
+
+class ClipToolsTest(unittest.TestCase):
+    def test_fade_keyframes_run_from_silent_to_full_and_back(self):
+        from cavi_premiere_mcp import clip_tools as clips
+
+        self.assertEqual(clips.fade_keys("video", 4, 1, 0.5),
+                         [{"time": 0, "opacity": 0}, {"time": 1, "opacity": 100},
+                          {"time": 3.5, "opacity": 100}, {"time": 4, "opacity": 0}])
+        self.assertEqual(clips.fade_keys("audio", 2, 0, 1), [{"time": 1, "volume_db": 0},
+                                                             {"time": 2, "volume_db": -96}])
+        with self.assertRaisesRegex(ValueError, "longer than the clip"):
+            clips.fade_keys("video", 1, 0.8, 0.8)
+        with self.assertRaisesRegex(ValueError, "Give fade_in or fade_out"):
+            clips.fade_keys("video", 1, 0, 0)
+
+    def test_search_finds_items_by_name_and_reports_offline_and_unused(self):
+        from cavi_premiere_mcp import clip_tools as clips
+
+        listed = {"items": [
+            {"name": "a.mov", "bin": "", "kind": "clip", "media_path": "/m/a.mov", "offline": False},
+            {"name": "b.mov", "bin": "Takes", "kind": "clip", "media_path": "/m/b.mov", "offline": True},
+            {"name": "main", "bin": "", "kind": "sequence", "media_path": None, "offline": None}],
+            "sequences": [{"name": "main", "video": [{"clips": [
+                {"name": "a.mov", "start": 0, "end": 2, "media_path": "/m/a.mov"}]}], "audio": []}]}
+        everything = clips.search(listed, None, "A.MOV", "both", False, False)
+        self.assertEqual([i["name"] for i in everything["items"]], ["a.mov"])
+        self.assertEqual([c["start"] for c in everything["clips"]], [0])
+        self.assertTrue(everything["items"][0]["used"])
+        offline = clips.search(listed, None, "", "both", True, False)
+        self.assertEqual([i["name"] for i in offline["items"]], ["b.mov"])
+        self.assertEqual(offline["clips"], [])
+        unused = clips.search(listed, None, "", "items", False, True)
+        self.assertEqual([i["name"] for i in unused["items"]], ["b.mov"])
+
+    def test_bad_input_is_refused_before_premiere_is_called(self):
+        from cavi_premiere_mcp import clip_tools as clips
+
+        def launch(app):
+            raise RuntimeError("an app was launched")
+
+        self.addCleanup(setattr, host, "start", host.start)
+        host.start = launch
+        with self.assertRaisesRegex(ValueError, "exactly one of at or position_index"):
+            clips.fade(None, "video", 0, None, None, 1, 0, 60)
+        with self.assertRaisesRegex(ValueError, "exactly one of at or position_index"):
+            clips.copy(None, "video", 0, 1.0, 0, 5.0, None, 60)
+        with self.assertRaisesRegex(ValueError, "exactly one of offset or in_point"):
+            clips.slip(None, "video", 0, 1.0, None, 1.0, 2.0, True, 60)
+        with self.assertRaisesRegex(ValueError, "in_point cannot be negative"):
+            clips.slip(None, "video", 0, 1.0, None, None, -1.0, True, 60)
+
+
+if __name__ == "__main__":
+    unittest.main()

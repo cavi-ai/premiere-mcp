@@ -11,7 +11,9 @@ TOOLS = {"premiere_status", "premiere_bridge_install", "premiere_script", "premi
          "premiere_clip_speed", "premiere_sequence_set", "premiere_tracks", "premiere_frame_export", "premiere_encode",
          "premiere_auto_reframe", "premiere_interchange", "premiere_captions", "premiere_effects",
          "premiere_effect_add", "premiere_effect_set", "premiere_clip_fit", "premiere_items",
-         "premiere_scene_detect"}
+         "premiere_scene_detect", "premiere_markers_edit", "premiere_gaps", "premiere_range_remove",
+         "premiere_bins", "premiere_fade", "premiere_find", "premiere_clip_copy",
+         "premiere_color", "premiere_clip_slip"}
 
 
 class ProtocolTest(unittest.IsolatedAsyncioTestCase):

@@ -10,21 +10,20 @@ Requires macOS, Premiere Pro 2026 or later, Adobe Bridge 2026 or later (the scri
 (`ffprobe`) and Python 3.15.
 
 ```sh
-uv sync
-uv run cavi-premiere-mcp
+uv tool install cavi-premiere-mcp
 ```
 
-The server speaks MCP over stdio. Client configuration:
+Register it in your MCP client; the server speaks MCP over stdio:
 
 ```json
-{"mcpServers": {"premiere": {"command": "uv", "args": ["--directory", "/path/to/premiere-mcp", "run", "cavi-premiere-mcp"]}}}
+{"mcpServers": {"premiere": {"command": "cavi-premiere-mcp"}}}
 ```
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
-| `premiere_status` | Installed Premiere Pro and Adobe Bridge, versions and pids, relay install state, mailbox path, and the system ProRes 422 HQ export preset.
+| `premiere_status` | Installed Premiere Pro, Adobe Bridge and Media Encoder (a missing one is reported in its entry), versions and pids, relay install state, mailbox path, and the system ProRes 422 HQ export preset.
 | `premiere_bridge_install` | Copies the relay startup script into Adobe Bridge's user Startup Scripts folder and reports whether it matches the packaged copy. | |
 | `premiere_script` | Runs a `.jsx` file in Premiere with the globals `CAVI_ARGS` and `CAVI_REPORT` and returns its last value as `answer`. When `report` names a `.json` path, the script writes JSON there and the call returns it. |
 | `premiere_cut` | Cuts a clip list into a new project and exports a ProRes 422 HQ `.mov` master; returns the master's frame count from `ffprobe`. |
@@ -55,6 +54,15 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_clip_fit` | Sets a video clip's Motion Scale and centers it so the source fits or fills the sequence frame. |
 | `premiere_items` | Renames, moves to a bin, labels, subclips, interprets footage, attaches a proxy to, sets metadata on or deletes (bins) a project item. |
 | `premiere_scene_detect` | Finds hard cuts inside a placed clip from its media and reports them as timeline seconds; can split the clip or add markers there. |
+| `premiere_markers_edit` | Lists sequence markers, or updates (name, comment, new start, duration) or deletes one by index or time, or all. |
+| `premiere_gaps` | Lists empty gaps across the unlocked tracks and closes them, moving later clips left so tracks stay in sync. |
+| `premiere_range_remove` | Cuts a time range out of every unlocked track; `extract` closes the hole, `lift` leaves it. |
+| `premiere_bins` | Creates, renames and deletes project bins and moves items into them. |
+| `premiere_fade` | Fades a clip in and out with opacity (video) or volume (audio) keyframes. |
+| `premiere_color` | Basic Lumetri Color correction (exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, saturation, vibrance); adds the effect when missing. |
+| `premiere_find` | Finds project items and placed clips by name or path; lists offline or unused items. |
+| `premiere_clip_copy` | Places another copy of a clip (same media and source range) at a time or track; effects are not copied. |
+| `premiere_clip_slip` | Slips a clip: shows a different part of its source while its place and length stay; linked clips slip too. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
 | `premiere_export` | Exports a sequence (whole, in/out range or work area, optional caption burn-in) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
@@ -255,3 +263,25 @@ uv sync --dev
 uv run ruff check .
 uv run pytest
 ```
+
+## Configuration
+
+| Variable | Meaning |
+|---|---|
+| `CAVI_PREMIERE_APP` | The Premiere Pro `.app` to use. |
+| `CAVI_BRIDGE_APP` | The Adobe Bridge `.app` to use. |
+| `CAVI_MEDIA_ENCODER_APP` | The Media Encoder `.app` to use. |
+
+Without an override the newest installed version under `/Applications` is used. An override that
+names another application is refused.
+
+## Failure handling
+
+- A tool error carries the cause as text.
+- A script that cannot write its report answers `ERROR`, and `premiere_script` raises when the script throws.
+- Projects open without conversion, locate-file or warning dialogs, because a modal dialog in Premiere blocks
+  every later call. A project with missing media opens with the media offline.
+- Premiere and Bridge turn a termination signal into an abort and write a crash report. Quit them from the
+  application, never with `kill`.
+- Inputs are checked before Premiere is touched: absolute paths, finite numbers, at most 5000 markers per
+  call, a plain file-name `prefix` for stills.
