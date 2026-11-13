@@ -1,0 +1,35 @@
+name: Feature request
+description: A Premiere Pro capability, tool or workflow the server does not cover yet
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The editing task that is not expressible today
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Proposed tool, argument or result change
+    validations:
+      required: true
+
+  - type: textarea
+    id: adobe-api
+    attributes:
+      label: Adobe API evidence
+      description: The documented Premiere Pro scripting or QE call this needs, and the Premiere Pro version you checked
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This changes an existing tool contract
+        - label: This adds a mutation of a Premiere Pro project

@@ -35,6 +35,16 @@ class ProtocolTest(unittest.IsolatedAsyncioTestCase):
                 "clips": [{"file": "/a.mov", "start": 0, "in_point": 0, "out_point": 1, "speed": 2}]})
             self.assertTrue(reply.is_error)
 
+    async def test_every_tool_explains_its_inputs(self):
+        params = StdioServerParameters(command=sys.executable, args=["-m", "cavi_premiere_mcp.server"])
+        async with stdio_client(params) as (r, w), ClientSession(r, w) as client:
+            await client.initialize()
+            for tool in (await client.list_tools()).tools:
+                self.assertGreaterEqual(len(tool.description.strip()), 40, tool.name)
+                for name, schema in tool.input_schema.get("properties", {}).items():
+                    with self.subTest(tool=tool.name, parameter=name):
+                        self.assertTrue(schema.get("description", "").strip())
+
     async def test_new_tools_refuse_bad_input_before_touching_premiere(self):
         params = StdioServerParameters(command=sys.executable, args=["-m", "cavi_premiere_mcp.server"])
         async with stdio_client(params) as (r, w), ClientSession(r, w) as client:

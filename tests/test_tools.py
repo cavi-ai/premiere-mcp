@@ -246,6 +246,37 @@ class ScriptTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, f"{tool}: {result.stderr}")
 
 
+PREMIERE_STUB = """
+var ProjectItemType = {BIN: 1, ROOT: 2, CLIP: 3};
+function File(path) { this.fsName = path; this.exists = true; }
+var item = {name: "a.mp4", type: 3, getMediaPath: function () { return "/m/a.mp4"; },
+    getInPoint: function () { return {seconds: 0}; }, getOutPoint: function () { return {seconds: 3}; },
+    setInPoint: function () {}, setOutPoint: function () {}};
+var lane = {clips: {numItems: 0}, overwriteClip: function (source, at) {
+    this.clips[this.clips.numItems++] = {name: source.name, start: {seconds: at}, end: {seconds: at + 3},
+        inPoint: {seconds: 0}, outPoint: {seconds: 3}, projectItem: source};
+}};
+var sequence = {name: "S", videoTracks: {numTracks: 1, 0: lane}, audioTracks: {numTracks: 0}};
+var app = {project: {rootItem: {type: 2, children: {numItems: 1, 0: item}}, activeSequence: sequence}};
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class PlacedClipTest(unittest.TestCase):
+    def test_a_placed_clip_report_is_a_valid_tool_result(self):
+        from cavi_premiere_mcp.models import Placed
+
+        script = "\n".join((PREMIERE_STUB, (JSX / "lib.jsx").read_text(), (JSX / "clip_place.jsx").read_text(), """
+var report = {warnings: [], errors: []};
+run({sequence: null, item: "/m/a.mp4", kind: "video", track: 0, at: 1, in_point: null, out_point: null,
+    mode: "overwrite"}, report);
+process.stdout.write(stringify(report));"""))
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        placed = Placed.model_validate(json.loads(result.stdout))
+        self.assertEqual((placed.clip.name, placed.clip.start, placed.clip.media_path), ("a.mp4", 1, "/m/a.mp4"))
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is required")
 class SceneTest(unittest.TestCase):
     def test_hard_cuts_are_found_at_their_source_times(self):

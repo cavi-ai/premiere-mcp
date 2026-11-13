@@ -8,7 +8,7 @@ from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY
 from pydantic import BaseModel, Field
 
 from . import host
-from .app import Kind, Seconds, Timeout, Track, mcp
+from .app import ClipAt, ClipIndex, ClipKind, ClipTrack, Seconds, SequenceName, Timeout, Track, mcp
 
 SILENT_DB = -96
 
@@ -187,46 +187,64 @@ class Copied(Result):
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_fade(fade_in: Seconds = 0, fade_out: Seconds = 0, kind: Kind = "video", track: Track = 0,
-                        at: Seconds | None = None, position_index: Annotated[int, Field(ge=0)] | None = None,
-                        sequence: str | None = None, timeout: Timeout = 300) -> Faded:
-    """Fade a clip in and out: opacity 0 to 100 percent (video) or volume silent to 0 dB (audio) over fade_in
-    seconds at the start and fade_out seconds at the end, as keyframes."""
+async def premiere_fade(
+        fade_in: Annotated[Seconds, Field(description="Fade-in length at the clip's start, in seconds.")] = 0,
+        fade_out: Annotated[Seconds, Field(description="Fade-out length at the clip's end, in seconds.")] = 0,
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Faded:
+    """Fade a clip in and out with keyframes: opacity 0 to 100 percent (video) or volume silent to 0 dB
+    (audio)."""
     return await asyncio.to_thread(fade, sequence, kind, track, at, position_index, fade_in, fade_out, timeout)
 
 
 @mcp.tool(annotations=READ_ONLY)
-async def premiere_find(query: str = "", scope: Literal["items", "clips", "both"] = "both",
-                        offline_only: bool = False, unused_only: bool = False, sequence: str | None = None,
-                        timeout: Timeout = 300) -> Found:
-    """Find project items and placed clips whose name or media path contains the query. offline_only lists
-    items whose media is missing; unused_only lists items placed on no sequence's timeline."""
+async def premiere_find(
+        query: Annotated[str, Field(description="Text the name or media path contains; everything when "
+                                                "empty.")] = "",
+        scope: Annotated[Literal["items", "clips", "both"], Field(description="Search project items, placed "
+                                                                              "clips or both.")] = "both",
+        offline_only: Annotated[bool, Field(description="Only items whose media is missing.")] = False,
+        unused_only: Annotated[bool, Field(description="Only items placed on no sequence.")] = False,
+        sequence: Annotated[str | None, Field(description="Search the clips of this sequence only; every "
+                                                          "sequence when omitted.")] = None,
+        timeout: Timeout = 300) -> Found:
+    """Find project items and placed clips whose name or media path contains the query."""
     return await asyncio.to_thread(find, sequence, query, scope, offline_only, unused_only, timeout)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_clip_copy(to_time: Seconds, kind: Kind = "video", track: Track = 0, at: Seconds | None = None,
-                             position_index: Annotated[int, Field(ge=0)] | None = None, to_track: Track | None = None,
-                             sequence: str | None = None, timeout: Timeout = 300) -> Copied:
-    """Place another copy of a clip (same media, same source range) at to_time, optionally on another track
-    of the same kind. The copy overwrites what is there and does not carry effects."""
+async def premiere_clip_copy(
+        to_time: Annotated[Seconds, Field(description="Sequence time where the copy starts, in seconds.")],
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        to_track: Annotated[Track | None, Field(description="0-based track for the copy; the clip's own when "
+                                                            "omitted.")] = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Copied:
+    """Place another copy of a clip (same media and source range) on a track of the same kind. The copy
+    overwrites what is there and does not carry effects."""
     return await asyncio.to_thread(copy, sequence, kind, track, at, position_index, to_time, to_track, timeout)
 
 
 Grade = Annotated[float, Field(ge=-100, le=100)]
 
 
+def grade(name):
+    return Annotated[Grade | None, Field(description=f"Lumetri {name}, -100 to 100.")]
+
+
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_color(exposure: Annotated[float, Field(ge=-5, le=5)] | None = None, contrast: Grade | None = None,
-                         highlights: Grade | None = None, shadows: Grade | None = None, whites: Grade | None = None,
-                         blacks: Grade | None = None, temperature: Grade | None = None, tint: Grade | None = None,
-                         saturation: Annotated[float, Field(ge=0, le=200)] | None = None,
-                         vibrance: Grade | None = None, track: Track = 0, at: Seconds | None = None,
-                         position_index: Annotated[int, Field(ge=0)] | None = None, sequence: str | None = None,
-                         timeout: Timeout = 300) -> Colored:
-    """Basic color correction on a video clip with Lumetri Color: exposure (stops), contrast, highlights,
-    shadows, whites, blacks, temperature, tint, vibrance (-100 to 100) and saturation (0 to 200, 100 is
-    neutral). Adds Lumetri Color when the clip has none."""
+async def premiere_color(
+        exposure: Annotated[Annotated[float, Field(ge=-5, le=5)] | None,
+                            Field(description="Lumetri Exposure in stops, -5 to 5.")] = None,
+        contrast: grade("Contrast") = None, highlights: grade("Highlights") = None,
+        shadows: grade("Shadows") = None, whites: grade("Whites") = None, blacks: grade("Blacks") = None,
+        temperature: grade("Temperature") = None, tint: grade("Tint") = None,
+        saturation: Annotated[Annotated[float, Field(ge=0, le=200)] | None,
+                              Field(description="Lumetri Saturation, 0 to 200; 100 is neutral.")] = None,
+        vibrance: grade("Vibrance") = None,
+        track: Annotated[Track, Field(description="0-based video track index of the clip; 0 is V1.")] = 0,
+        at: ClipAt = None, position_index: ClipIndex = None,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Colored:
+    """Basic color correction on a video clip with Lumetri Color, added when the clip has none."""
     values = {"exposure": exposure, "contrast": contrast, "highlights": highlights, "shadows": shadows,
               "whites": whites, "blacks": blacks, "temperature": temperature, "tint": tint,
               "saturation": saturation, "vibrance": vibrance}
@@ -234,12 +252,14 @@ async def premiere_color(exposure: Annotated[float, Field(ge=-5, le=5)] | None =
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_clip_slip(offset: float | None = None, in_point: Seconds | None = None, kind: Kind = "video",
-                             track: Track = 0, at: Seconds | None = None,
-                             position_index: Annotated[int, Field(ge=0)] | None = None, with_linked: bool = True,
-                             sequence: str | None = None, timeout: Timeout = 300) -> Slipped:
+async def premiere_clip_slip(
+        offset: Annotated[float | None, Field(description="Seconds to shift the source in point; positive shows "
+                                                          "later footage.")] = None,
+        in_point: Annotated[Seconds | None, Field(description="New source in point, in seconds.")] = None,
+        kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
+        with_linked: Annotated[bool, Field(description="Slip the linked clips too.")] = True,
+        sequence: SequenceName = None, timeout: Timeout = 300) -> Slipped:
     """Slip a clip: show a different part of its source while its place and length on the timeline stay.
-    offset shifts the source in point (positive shows later footage); in_point sets it. Linked clips slip
-    too. A slip past the end of the media is undone and reported."""
+    A slip past the end of the media is undone and reported."""
     return await asyncio.to_thread(slip, sequence, kind, track, at, position_index, offset, in_point, with_linked,
                                    timeout)

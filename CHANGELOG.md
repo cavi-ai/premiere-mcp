@@ -9,6 +9,9 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `CAVI_PREMIERE_APP`, `CAVI_BRIDGE_APP` and `CAVI_MEDIA_ENCODER_APP` choose the application bundle.
 - `premiere_status` reports Media Encoder and any application that is not installed.
 - LICENSE, CONTRIBUTING, SECURITY, a release workflow and package metadata.
+- Documentation source under `docs/premiere-mcp/source` (introduction, guides, tools reference, security, release), built and verified by `scripts/docs`, and attached to each release.
+- A test that fails when the README or the tools reference and the registered tools, parameters, defaults or results differ.
+- `evals/` with MCP Eval protocol and core checks, a first-cut example under `examples/`, a Code of Conduct, issue and pull request templates.
 
 ### Changed
 
@@ -25,4 +28,5 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - Non-finite numbers, oversized marker lists and file prefixes with a path are refused before Premiere is called.
 - `premiere_scene_detect` reports a missing sequence, track or clip, and an unreadable movie, instead of failing with an index error or an empty result.
 - A Bridge that is still starting is waited for instead of reported as an unapproved relay.
+- `premiere_clip_place` failed after placing the clip because its result had no `media_path`.
 - Stale mailbox files are removed.

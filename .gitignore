@@ -9,4 +9,6 @@ build/
 .tmp/
 .quarantine/
 .worktrees/
+node_modules/
+/docs/premiere-mcp/v*/
 .DS_Store
