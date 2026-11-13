@@ -383,3 +383,43 @@ class PresetTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MailboxTest(unittest.TestCase):
+    def serve(self, box, reply):
+        import threading
+
+        def bridge():
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                for job in box.glob("*.job"):
+                    target, _, body = job.read_text().partition("\n")
+                    answer = reply(target, body)
+                    job.unlink()
+                    (box / (job.stem + ".part")).write_text(answer)
+                    (box / (job.stem + ".part")).rename(box / (job.stem + ".reply"))
+                    return
+                time.sleep(0.01)
+
+        thread = threading.Thread(target=bridge)
+        thread.start()
+        self.addCleanup(thread.join)
+
+    def test_round_trip_returns_the_relay_answer_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as folder:
+            box = Path(folder)
+            self.serve(box, lambda target, body: f"ok\n{target}|{body}")
+            self.assertEqual(host.mailbox_send("premierepro", "1+1", 5, box=box), (True, "premierepro|1+1"))
+            self.assertEqual(list(box.iterdir()), [])
+
+    def test_relay_error_is_returned_as_an_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            box = Path(folder)
+            self.serve(box, lambda target, body: "error\nTARGET COULD NOT BE LAUNCHED")
+            self.assertEqual(host.mailbox_send("premierepro", "x", 5, box=box), (False, "TARGET COULD NOT BE LAUNCHED"))
+
+    def test_no_reply_raises_the_approval_message(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(host.NotReady, "approve it in Bridge Settings > Startup Scripts"):
+                host.mailbox_send("premierepro", "'ready'", 5, wait=0.2, box=Path(folder))
+            self.assertEqual(list(Path(folder).iterdir()), [])

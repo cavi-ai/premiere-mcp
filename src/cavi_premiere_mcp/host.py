@@ -1,4 +1,4 @@
-"""Premiere Pro over a Photoshop BridgeTalk relay, the ProRes cut engine and frame checks."""
+"""Premiere Pro over an Adobe Bridge BridgeTalk relay, the ProRes cut engine and frame checks."""
 
 import json
 import os
@@ -7,6 +7,7 @@ import re
 import shutil
 import tempfile
 import time
+import uuid
 from fractions import Fraction
 from pathlib import Path
 
@@ -16,6 +17,13 @@ JSX = Path(__file__).with_name("jsx")
 CUT = JSX / "cut.jsx"
 READY_TIMEOUT = 300
 ENCODER_SETTLE = 40
+BRIDGE_PING = 30
+BRIDGE_LAUNCH = 60
+RELAY = "cavi-bridge-relay.jsx"
+RELAY_SOURCE = JSX / "bridge_relay.jsx"
+MAILBOX = Path.home() / "Library/Application Support/cavi-bridge-relay"
+APPROVAL = ("Adobe Bridge has not run the cavi-bridge-relay startup script: approve it in Bridge "
+            "Settings > Startup Scripts, or run premiere_bridge_install")
 PRESET = "*.app/Contents/MediaIO/systempresets/3F3F3F3F_4D6F6F56/Apple ProRes 422 HQ.epr"
 TRANSITIONS = {"cross_dissolve": "Cross Dissolve", "film_dissolve": "Film Dissolve",
                "dip_to_white": "Dip to White", "dip_to_black": "Dip to Black"}
@@ -36,8 +44,34 @@ def premiere():
     return newest("Adobe Premiere Pro 20*/Adobe Premiere Pro 20*.app")
 
 
-def photoshop():
-    return newest("Adobe Photoshop 20*/Adobe Photoshop 20*.app")
+def bridge():
+    return newest("Adobe Bridge 20*/Adobe Bridge 20*.app")
+
+
+def startup_folder():
+    found = sorted((Path.home() / "Library/Application Support/Adobe").glob("Bridge 20*"))
+    if not found:
+        raise ValueError("Adobe Bridge has no user folder; start Bridge once")
+    return found[-1] / "Startup Scripts"
+
+
+def relay_state():
+    try:
+        installed = startup_folder() / RELAY
+    except ValueError:
+        return "no"
+    if not installed.exists():
+        return "no"
+    return "yes" if installed.read_bytes() == RELAY_SOURCE.read_bytes() else "differs"
+
+
+def bridge_install():
+    bridge()
+    folder = startup_folder()
+    folder.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(RELAY_SOURCE, folder / RELAY)
+    return {"path": str(folder / RELAY), "matches": relay_state() == "yes",
+            "next": "Restart Adobe Bridge, then approve cavi-bridge-relay in Bridge Settings > Startup Scripts once"}
 
 
 def media_encoder():
@@ -60,7 +94,8 @@ def describe(app):
 
 
 def status():
-    return {"premiere": describe(premiere()), "photoshop": describe(photoshop()),
+    return {"premiere": describe(premiere()), "bridge": describe(bridge()),
+            "relay": relay_state(), "mailbox": str(MAILBOX),
             "prores_preset": str(prores_preset())}
 
 
@@ -72,52 +107,62 @@ def start(app):
             raise RuntimeError(f"{app.stem} did not launch: " + diagnostics(result))
 
 
-def photoshop_script(code, timeout):
-    """Run ExtendScript in Photoshop; do javascript answers the script's last value."""
-    app = photoshop()
+def mailbox_send(target, body, timeout, wait=None, box=None):
+    """Hand a job to the Bridge relay and wait for its reply: (ok, result). wait is how long to wait
+    for the relay to pick the job up before raising the approval message."""
+    box = box or MAILBOX
+    box.mkdir(parents=True, exist_ok=True)
+    name = uuid.uuid4().hex
+    job, reply = box / f"{name}.job", box / f"{name}.reply"
+    part = box / f"{name}.part"
+    part.write_text(f"{target}\n{body}", encoding="utf-8")
+    part.rename(job)
+    deadline = time.monotonic() + (timeout if wait is None else min(wait, timeout))
+    try:
+        while not reply.exists():
+            if time.monotonic() > deadline:
+                if wait is not None:
+                    raise NotReady(APPROVAL)
+                raise TimeoutError(f"No answer from {target} within {timeout} s")
+            time.sleep(0.05)
+        head, _, result = reply.read_text(encoding="utf-8").partition("\n")
+        return head == "ok", result
+    finally:
+        for leftover in (job, part, reply):
+            leftover.unlink(missing_ok=True)
+
+
+def relay(body, timeout, target="premierepro"):
+    """Send ExtendScript to an Adobe app through Bridge BridgeTalk once the app answers messages."""
+    app = bridge()
+    launched = not running(app)
     start(app)
-    result = run_sync(["osascript", "-e", "on run argv", "-e", f"with timeout of {timeout} seconds",
-                       "-e", f'tell application "{app.stem}" to set answer to do javascript '
-                       "(item 1 of argv)", "-e", "end timeout", "-e", "return answer", "-e", "end run",
-                       code], timeout + 30)
-    if result.returncode:
-        raise RuntimeError("Photoshop script failed: " + diagnostics(result))
-    return result.stdout.strip()
-
-
-def relay(body, timeout):
-    """Send ExtendScript to Premiere through Photoshop BridgeTalk once Premiere answers messages."""
     start(premiere())
     # A Premiere that is still starting refuses messages with "TARGET COULD NOT BE LAUNCHED".
     deadline = time.monotonic() + READY_TIMEOUT
-    while (answer := send("'ready'", 15)) != "ready":
+    wait = BRIDGE_PING + (BRIDGE_LAUNCH if launched else 0)
+    while (answer := send("'ready'", 15, target, wait)) != "ready":
+        wait = None
         if time.monotonic() > deadline:
             raise NotReady(f"Premiere Pro did not answer within {READY_TIMEOUT} s: {answer}")
         time.sleep(5)
-    return send_file(body, timeout)
+    return send_file(body, timeout, target)
 
 
-def send_file(body, timeout):
+def send_file(body, timeout, target="premierepro"):
     """Send a script as a UTF-8 file for Premiere to evaluate; BridgeTalk doubles backslashes in bodies."""
     with tempfile.TemporaryDirectory(prefix="premiere-relay-") as folder:
         script = Path(folder) / "body.jsx"
         script.write_text(body, encoding="utf-8")
         load = (f"(function (p) {{ var f = new File(p); f.encoding = 'UTF-8'; f.open('r'); var t = f.read();"
                 f"f.close(); return eval(t); }})({json.dumps(str(script))});")
-        return send(load, timeout)
+        return send(load, timeout, target)
 
 
-def send(body, timeout):
-    """BridgeTalk send(timeout) in Photoshop is synchronous; it answers Premiere's last value."""
-    code = ("(function () { var target = BridgeTalk.getSpecifier('premierepro');"
-            "if (!target) { return 'Premiere Pro is not installed'; }"
-            "var talk = new BridgeTalk(), answer = 'no answer';"
-            f"talk.target = target; talk.body = {json.dumps(body)};"
-            "talk.onResult = function (m) { answer = m.body; };"
-            "talk.onError = function (m) { answer = 'ERROR ' + m.body; };"
-            "talk.onTimeout = function () { answer = 'timed out'; };"
-            f"talk.send({timeout}); return answer; }})();")
-    return photoshop_script(code, timeout + 60)
+def send(body, timeout, target="premierepro", wait=None):
+    """The target's last value, or "ERROR <message>"; the relay answers through the mailbox."""
+    ok, result = mailbox_send(target, body, timeout + 30, wait)
+    return result if ok else "ERROR " + result
 
 
 def absolute(path, suffix=None):
