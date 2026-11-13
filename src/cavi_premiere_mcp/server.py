@@ -827,7 +827,7 @@ async def premiere_captions(file: str, start: Seconds = 0,
     return await asyncio.to_thread(host.captions, sequence, file, start, format, timeout)
 
 
-from . import timeline  # noqa: E402,F401  registers the timeline tools
+from . import clip_tools, timeline  # noqa: E402,F401  register the timeline and clip tools
 
 
 def main():

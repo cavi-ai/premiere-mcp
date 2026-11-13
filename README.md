@@ -59,6 +59,10 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_gaps` | Lists empty gaps across the unlocked tracks and closes them, moving later clips left so tracks stay in sync. |
 | `premiere_range_remove` | Cuts a time range out of every unlocked track; `extract` closes the hole, `lift` leaves it. |
 | `premiere_bins` | Creates, renames and deletes project bins and moves items into them. |
+| `premiere_fade` | Fades a clip in and out with opacity (video) or volume (audio) keyframes. |
+| `premiere_color` | Basic Lumetri Color correction (exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, saturation, vibrance); adds the effect when missing. |
+| `premiere_find` | Finds project items and placed clips by name or path; lists offline or unused items. |
+| `premiere_clip_copy` | Places another copy of a clip (same media and source range) at a time or track; effects are not copied. |
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
 | `premiere_export` | Exports a sequence (whole, in/out range or work area, optional caption burn-in) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
