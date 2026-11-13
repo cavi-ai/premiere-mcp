@@ -2,6 +2,11 @@
 function run(A, report) {
     var source = findItem(A.item), before = mediaPath(source);
     if (sameFile(before, A.path)) {
+        // The same path: take the item offline and relink it so Premiere reads the file again.
+        source.setOffline();
+        if (!source.changeMediaPath(A.path, true)) {
+            fail("Premiere could not relink " + A.item + " to " + A.path);
+        }
         source.refreshMedia();
     } else if (!source.changeMediaPath(A.path, true)) {
         fail("Premiere refused to relink " + A.item + " to " + A.path);

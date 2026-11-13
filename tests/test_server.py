@@ -7,7 +7,7 @@ from mcp.client.stdio import stdio_client
 TOOLS = {"premiere_status", "premiere_script", "premiere_cut", "premiere_project", "premiere_inspect",
          "premiere_import", "premiere_sequence_new", "premiere_clip_place", "premiere_clip_props",
          "premiere_transition_add", "premiere_media_replace", "premiere_markers_add", "premiere_mogrt_add",
-         "premiere_export"}
+         "premiere_export", "premiere_transitions", "premiere_presets"}
 
 
 class ProtocolTest(unittest.IsolatedAsyncioTestCase):

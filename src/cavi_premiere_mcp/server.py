@@ -36,7 +36,7 @@ class Script(Result):
 
 class Transition(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["cross_dissolve", "film_dissolve", "dip_to_white", "dip_to_black"]
+    kind: str  # an alias (cross_dissolve, film_dissolve, dip_to_white, dip_to_black) or a name premiere_transitions lists
     frames: int = Field(ge=1, le=600)
 
 
@@ -57,6 +57,24 @@ class Cut(Result):
     cut_frames: int
     transitions: list[str]
     warnings: list[str]
+
+
+class Transitions(Result):
+    video: list[str]
+    audio: list[str]
+    aliases: dict[str, str]
+
+
+class PresetEntry(BaseModel):
+    name: str
+    format: str
+    source: Literal["premiere", "media_encoder", "user"]
+    path: str
+
+
+class Presets(Result):
+    export: list[PresetEntry]
+    sequence: list[PresetEntry]
 
 
 class Project(Result):
@@ -251,9 +269,11 @@ async def premiere_cut(project: str, master: str, clips: Annotated[list[Clip], F
 
 @mcp.tool(annotations=DESTRUCTIVE)
 async def premiere_project(action: Literal["open", "new", "save", "close"], path: str | None = None,
-                           replace: bool = False, save: bool = False, timeout: Timeout = 300) -> Project:
-    """Open, create, save or close a .prproj. new refuses an existing path unless replace; close saves only when save."""
-    return await asyncio.to_thread(host.project, action, path, replace, save, timeout)
+                           replace: bool = False, save: bool = False, close_others: bool = False,
+                           timeout: Timeout = 300) -> Project:
+    """Open, create, save or close a .prproj. new refuses an existing path unless replace; close saves only
+    when save. close_others closes every other open project unsaved after open or new; open is the count."""
+    return await asyncio.to_thread(host.project, action, path, replace, save, close_others, timeout)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -261,6 +281,18 @@ async def premiere_inspect(sequence: str | None = None, timeout: Timeout = 300) 
     """Bins, project items (media path, offline, duration, fps, size), sequences with each track's clips,
     transitions and markers, all in seconds. sequence limits it to one sequence."""
     return await asyncio.to_thread(host.inspect, sequence, timeout)
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def premiere_transitions(timeout: Timeout = 300) -> Transitions:
+    """Every video and audio transition this Premiere offers (QE names), and the short aliases."""
+    return await asyncio.to_thread(host.transitions, timeout)
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def premiere_presets() -> Presets:
+    """Export presets (.epr: Premiere, Media Encoder and user) and sequence presets (.sqpreset) by name."""
+    return await asyncio.to_thread(lambda: {"export": host.presets("export"), "sequence": host.presets("sequence")})
 
 
 @mcp.tool(annotations=WRITES)
@@ -274,7 +306,7 @@ async def premiere_import(files: Annotated[list[str], Field(min_length=1)], bin:
 async def premiere_sequence_new(name: str, clip: str | None = None, preset: str | None = None,
                                 bin: str | None = None, timeout: Timeout = 300) -> NewSequence:
     """New empty sequence with the settings of a project item (media path or name) or of a .sqpreset
-    (absolute path, or a preset's file name without extension such as "HD 1080p 25 fps")."""
+    (absolute path, or a name premiere_presets lists such as "HD 1080p 25 fps")."""
     return await asyncio.to_thread(host.sequence_new, name, clip, preset, bin, timeout)
 
 
@@ -314,8 +346,8 @@ async def premiere_transition_add(transition: str = "Cross Dissolve", frames: An
                                   alignment: Annotated[float, Field(ge=0, le=1)] = 0.5,
                                   single_sided: bool = False, sequence: str | None = None,
                                   timeout: Timeout = 300) -> Added:
-    """QE transition (Premiere's name: Cross Dissolve, Film Dissolve, Dip to Black, Dip to White; audio:
-    Constant Power, Constant Gain, Exponential Fade) at the start or end of the clip at `at` or
+    """QE transition (a name premiere_transitions lists, or cross_dissolve, film_dissolve, dip_to_black,
+    dip_to_white) at the start or end of the clip at `at` or
     position_index. alignment 0 starts at the cut, 0.5 centers on it, 1 ends at it."""
     return await asyncio.to_thread(host.transition_add, sequence, kind, track, at, position_index, transition,
                                    frames, edge, alignment, single_sided, timeout)
@@ -349,9 +381,10 @@ async def premiere_mogrt_add(mogrt: str, at: Seconds, video_track: Track = 1, au
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
-async def premiere_export(master: str, preset: str, work_area: Literal["entire", "in_out"] = "entire",
+async def premiere_export(master: str, preset: str | None = None, work_area: Literal["entire", "in_out"] = "entire",
                           replace: bool = False, sequence: str | None = None, timeout: Timeout = 1800) -> Export:
-    """Export a sequence with an absolute .epr preset through exportAsMediaDirect. Completion is judged by the
+    """Export a sequence through exportAsMediaDirect with a preset: an absolute .epr path or a name
+    premiere_presets lists (format/name when the name is not unique, e.g. H264/...); default ProRes 422 HQ. Completion is judged by the
     report file, the output released by every process and the ffprobe frame count, not the relay's answer."""
     return await asyncio.to_thread(host.export, sequence, master, preset, work_area, replace, timeout)
 

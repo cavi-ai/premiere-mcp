@@ -27,10 +27,12 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_status` | Installed Premiere Pro and Photoshop, their versions and pids, and the system ProRes 422 HQ export preset. |
 | `premiere_script` | Runs a `.jsx` file in Premiere with the globals `CAVI_ARGS` and `CAVI_REPORT` and returns its last value as `answer`. When `report` names a `.json` path, the script writes JSON there and the call returns it. |
 | `premiere_cut` | Cuts a clip list into a new project and exports a ProRes 422 HQ `.mov` master; returns the master's frame count from `ffprobe`. |
-| `premiere_project` | Opens, creates (`new` refuses an existing path unless `replace`), saves or closes a `.prproj`. |
+| `premiere_project` | Opens, creates (`new` refuses an existing path unless `replace`), saves or closes a `.prproj`; `close_others` closes every other open project unsaved and `open` reports the count. |
 | `premiere_inspect` | Bins, project items (media path, offline, duration, fps, frame size), sequences with every track's clips and transitions, and sequence markers. |
+| `premiere_transitions` | Lists every video and audio transition this Premiere offers, read from QE. |
+| `premiere_presets` | Lists export presets (`.epr`: Premiere, Media Encoder and user) and sequence presets (`.sqpreset`) by name. |
 | `premiere_import` | Imports files into a named bin, created when missing. |
-| `premiere_sequence_new` | Creates an empty sequence with the settings of a project item or of a `.sqpreset` (path or preset name). |
+| `premiere_sequence_new` | Creates an empty sequence with the settings of a project item or of a `.sqpreset` (path or listed name). |
 | `premiere_clip_place` | Places a project item or file on any video or audio track at a time, with source in/out, overwrite or insert. |
 | `premiere_clip_props` | Sets Motion position, scale and rotation, Opacity and audio Volume on a placed clip, static or keyframed. |
 | `premiere_transition_add` | Adds a QE transition of a given kind and length at the start or end of any track's clip. |
@@ -51,8 +53,9 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
 - `premiere_clip_props`: `position` is pixels from the top left; `scale` and `opacity` are percent;
   `rotation` is degrees; `volume_db` is dB (0 is unity). `keyframes[].time` is seconds from the
   clip's start, and a property with keyframes ignores its static value.
-- `premiere_transition_add`: `transition` is Premiere's name (`Cross Dissolve`, `Film Dissolve`,
-  `Dip to Black`, `Dip to White`; audio `Constant Power`, `Constant Gain`, `Exponential Fade`).
+- `premiere_transition_add` and the clips of `premiere_cut` take any name `premiere_transitions`
+  lists (`Cross Zoom`, `Constant Power`, ...) and the aliases `cross_dissolve`, `film_dissolve`,
+  `dip_to_white`, `dip_to_black`.
   `alignment` 0 starts the transition at the cut, 0.5 centers it, 1 ends it there. A transition
   needs source handles on both sides to reach its full length.
 - `premiere_markers_add` with `beat_grid` writes one marker per beat from `start` to `end`, named
@@ -60,7 +63,11 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
 - `premiere_mogrt_add` sets text through the template's exposed parameters, so it works with
   templates built in After Effects. The native Essential Graphics titles that ship with Premiere
   (`Basic Title`, `Basic Lower Third`) expose none; a request for text on one is refused.
-  `video_track` must be an existing track.
+  `video_track` must be an existing track. The text is confirmed by reading the parameter back.
+- `premiere_export` and `premiere_sequence_new` take an absolute path or a name from
+  `premiere_presets`. A name used by several formats is written `format/name`, for example
+  `H264/00 - Match Source - High bitrate`; user presets win over system ones. Export defaults to
+  Apple ProRes 422 HQ.
 - `premiere_export` returns `frames` from `ffprobe` and `expected_frames` from the sequence length;
   `complete` is true when they match. `premiere_cut` is judged the same way.
 - To change a source movie that is written again on disk while its project stays open, call
@@ -113,8 +120,10 @@ Measured with Premiere Pro 2026 and Photoshop 2026 on macOS.
 5. A script body sent through BridgeTalk reaches Premiere with every backslash doubled, so the relay
    writes the script to a temporary file and Premiere evaluates that file.
 6. Premiere keeps showing the old frames of a source movie that is overwritten on disk while its
-   project is open; `changeMediaPath` and `refreshMedia` (`premiere_media_replace`) make it read
-   the file again.
+   project is open. Measured with a red 3 s ProRes clip on V1: the export read (255, 25, 0) at
+   frame 25; after the file was overwritten with blue the next export still read (255, 25, 0),
+   and `refreshMedia` alone changed nothing. After `premiere_media_replace` (the item taken
+   offline, relinked to the same path and refreshed) the export read (0, 16, 255).
 7. The relay can answer `timed out` while Premiere keeps exporting. Exports and cuts are judged by
    the report file, the output file with no process holding it open (`lsof`) and its `ffprobe`
    frame count, not by the relay's answer.

@@ -12,7 +12,7 @@ from cavi_premiere_mcp import host
 
 JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
-         "media_replace", "markers_add", "mogrt_add", "export"]
+         "media_replace", "markers_add", "mogrt_add", "export", "transitions"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -39,12 +39,12 @@ class RefusalTest(unittest.TestCase):
         project = self.root / "a.prproj"
         project.write_text("kept")
         with self.assertRaisesRegex(ValueError, "pass replace=true"):
-            host.project("new", project, False, False, 60)
+            host.project("new", project, False, False, False, 60)
         self.assertEqual(project.read_text(), "kept")
 
     def test_open_needs_an_existing_project(self):
         with self.assertRaisesRegex(ValueError, "No file at"):
-            host.project("open", self.root / "missing.prproj", False, False, 60)
+            host.project("open", self.root / "missing.prproj", False, False, False, 60)
 
     def test_export_keeps_an_existing_master(self):
         master, preset = self.root / "m.mov", self.root / "p.epr"
@@ -151,7 +151,62 @@ class FinishTest(unittest.TestCase):
             host.finish("", self.report, self.master, 60)
 
 
+class TransitionNameTest(unittest.TestCase):
+    def test_cut_takes_aliases_and_any_listed_name(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for name in ("a.mov", "b.mov"):
+                (Path(folder) / name).write_bytes(b"")
+            clips = [{"file": f"{folder}/a.mov", "start": 0, "in_point": 0, "out_point": 1,
+                      "transition": {"kind": "dip_to_black", "frames": 4}},
+                     {"file": f"{folder}/b.mov", "start": 1, "in_point": 0, "out_point": 1,
+                      "transition": {"kind": "Cross Zoom", "frames": 4}}]
+            planned, _ = host.plan(clips, 25)
+        self.assertEqual([c["transition"] for c in planned], ["Dip to Black", "Cross Zoom"])
+
+
+class PresetLookupTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="premiere-presets-"))
+        self.addCleanup(shutil.rmtree, self.root)
+        self.roots = host.preset_roots
+        self.addCleanup(setattr, host, "preset_roots", self.roots)
+        for source, folder, name in [("premiere", "4E49434B_48323634", "Match High"),
+                                     ("media_encoder", "4E49434B_48323634", "Match High"),
+                                     ("premiere", "4A454646_48455643", "Match High"),
+                                     ("user", "user", "Match Low"), ("premiere", "4E49434B_48323634", "Match Low")]:
+            path = self.root / source / folder / f"{name}.epr"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("")
+        host.preset_roots = lambda kind: [(s, self.root / s) for s in ("premiere", "media_encoder", "user")]
+
+    def test_listing_names_format_and_source(self):
+        found = {(p["source"], p["format"], p["name"]) for p in host.presets("export")}
+        self.assertIn(("premiere", "H264", "Match High"), found)
+        self.assertIn(("user", "user", "Match Low"), found)
+
+    def test_format_prefix_picks_among_equal_names(self):
+        path = host.resolve_preset("export", "H264/Match High")
+        self.assertEqual(Path(path), self.root / "premiere/4E49434B_48323634/Match High.epr")
+
+    def test_equal_names_in_several_formats_need_a_prefix(self):
+        with self.assertRaisesRegex(ValueError, "several presets"):
+            host.resolve_preset("export", "Match High")
+
+    def test_user_preset_wins_over_a_system_preset_of_the_same_name(self):
+        self.assertEqual(Path(host.resolve_preset("export", "Match Low")), self.root / "user/user/Match Low.epr")
+
+    def test_unknown_name_points_to_the_listing(self):
+        with self.assertRaisesRegex(ValueError, "premiere_presets"):
+            host.resolve_preset("export", "nope")
+
+
 class PresetTest(unittest.TestCase):
+    @unittest.skipUnless(sorted(Path("/Applications").glob("Adobe Premiere Pro 20*")), "Premiere Pro is required")
+    def test_installed_presets_are_found_by_name(self):
+        names = {(p["format"], p["name"]) for p in host.presets("export")}
+        self.assertIn(("MooV", "Apple ProRes 422 HQ"), names)
+        self.assertTrue(host.resolve_preset("export", "H264/00 - Match Source - High bitrate").endswith(".epr"))
+
     @unittest.skipUnless(sorted(Path("/Applications").glob("Adobe Premiere Pro 20*")), "Premiere Pro is required")
     def test_preset_name_resolves_to_its_file(self):
         found = Path(host.sequence_preset("HD 1080p 25 fps"))

@@ -220,7 +220,7 @@ def plan(clips, fps):
             raise ValueError(f"Clip {number}: starts before clip {number - 1} ends; order clips by start")
         transition = clip.get("transition") or {}
         planned.append({"file": str(file), "start": float(start / fps), "in_point": float(first / fps),
-                        "out_point": float(last / fps), "transition": TRANSITIONS.get(transition.get("kind")),
+                        "out_point": float(last / fps), "transition": TRANSITIONS.get(transition.get("kind"), transition.get("kind")),
                         "frames": transition.get("frames", 0)})
         end = start + last - first
     return planned, end
@@ -278,9 +278,9 @@ def item_ref(ref):
     return str(absolute(ref)) if ref.startswith(("/", "~")) else ref
 
 
-def project(action, path, replace, save, timeout):
+def project(action, path, replace, save, close_others, timeout):
     """Open, create, save or close a Premiere project."""
-    args = {"action": action, "path": None, "save": save}
+    args = {"action": action, "path": None, "save": save, "close_others": close_others}
     if action == "open":
         args["path"] = str(existing(path, ".prproj"))
     elif action == "new":
@@ -303,14 +303,67 @@ def import_files(files, bin, timeout):
     return invoke("import", {"files": paths, "bin": bin}, timeout)
 
 
-def sequence_preset(preset):
-    """A .sqpreset by absolute path or by its file name in Premiere's own presets."""
+def transitions(timeout):
+    """Every video and audio transition name Premiere offers, plus the short aliases for four of them."""
+    found = invoke("transitions", {}, timeout)
+    return {"video": found["video"], "audio": found["audio"], "aliases": TRANSITIONS}
+
+
+def preset_roots(kind):
+    """(source, folder) pairs holding .epr export or .sqpreset sequence presets."""
+    home = Path.home() / "Documents/Adobe"
+    if kind == "export":
+        roots = [("premiere", premiere() / "Contents/MediaIO/systempresets")]
+        roots += [("media_encoder", app / "Contents/MediaIO/systempresets")
+                  for app in sorted(Path("/Applications").glob("Adobe Media Encoder 20*/Adobe Media Encoder 20*.app"))]
+        roots += [("user", folder) for folder in sorted((home / "Adobe Media Encoder").glob("*/Presets"))]
+    else:
+        roots = [("premiere", premiere() / "Contents/Settings/SequencePresets")]
+        roots += [("user", folder) for folder in sorted((home / "Premiere Pro").glob("*/Profile-*/Settings/Custom"))]
+    return roots
+
+
+def format_code(folder):
+    """The format of a system preset folder such as 4E49434B_48323634 (its second half as ASCII)."""
+    try:
+        return bytes.fromhex(folder.split("_")[1]).decode("ascii").strip()
+    except (IndexError, ValueError):
+        return ""
+
+
+def presets(kind):
+    """Presets by name: {name, format, source, path}; a duplicated name is addressed as format/name."""
+    suffix = ".epr" if kind == "export" else ".sqpreset"
+    found = []
+    for source, root in preset_roots(kind):
+        for path in sorted(root.rglob(f"*{suffix}")):
+            found.append({"name": path.stem, "format": "user" if source == "user" else format_code(path.parent.name) or path.parent.name,
+                          "source": source, "path": str(path)})
+    return found
+
+
+def resolve_preset(kind, preset):
+    """A preset by absolute path, by name, or as format/name when the name is not unique."""
+    suffix = ".epr" if kind == "export" else ".sqpreset"
+    preset = str(preset)
     if preset.startswith(("/", "~")):
-        return str(existing(preset, ".sqpreset"))
-    found = sorted((premiere() / "Contents/Settings/SequencePresets").rglob(f"{preset}.sqpreset"))
-    if not found:
-        raise ValueError(f"No sequence preset named {preset}")
-    return str(found[0])
+        return str(existing(preset, suffix))
+    matches = [p for p in presets(kind) if preset in (p["name"], f"{p['format']}/{p['name']}")]
+    if not matches:
+        raise ValueError(f"No {kind} preset named {preset}; list them with premiere_presets")
+    if len({p["path"] for p in matches}) > 1:
+        # User presets win, then Premiere's own, over Media Encoder's.
+        for source in ("user", "premiere"):
+            chosen = [p for p in matches if p["source"] == source]
+            if len({p["path"] for p in chosen}) == 1:
+                return chosen[0]["path"]
+        raise ValueError(f"{preset} names several presets; use format/name: "
+                         + ", ".join(sorted({f"{p['format']}/{p['name']}" for p in matches})))
+    return matches[0]["path"]
+
+
+def sequence_preset(preset):
+    return resolve_preset("sequence", preset)
 
 
 def sequence_new(name, clip, preset, bin, timeout):
@@ -342,7 +395,7 @@ def transition_add(sequence, kind, track, at, position_index, transition, frames
     if (at is None) == (position_index is None):
         raise ValueError("Give exactly one of at or position_index")
     args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
-            "transition": transition, "frames": frames, "edge": edge, "alignment": alignment,
+            "transition": TRANSITIONS.get(transition, transition), "frames": frames, "edge": edge, "alignment": alignment,
             "single_sided": single_sided}
     return invoke("transition_add", args, timeout)
 
@@ -392,7 +445,7 @@ def mogrt_add(sequence, mogrt, at, video_track, audio_track, duration, text, tim
 
 def export(sequence, master, preset, work_area, replace, timeout):
     """Export a sequence with an .epr preset; judged by the report, the released file and ffprobe frames."""
-    master, preset = absolute(master), existing(preset, ".epr")
+    master, preset = absolute(master), Path(resolve_preset("export", preset) if preset else prores_preset())
     if master.exists() and not replace:
         raise ValueError(f"Already exists (pass replace=true): {master}")
     master.parent.mkdir(parents=True, exist_ok=True)
