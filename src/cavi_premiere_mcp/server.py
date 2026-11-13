@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import host
 
 mcp = Server("cavi-premiere", package="cavi-premiere-mcp",
-             instructions="Premiere Pro, driven through Photoshop BridgeTalk. Paths are absolute.")
+             instructions="Premiere Pro, driven through Adobe Bridge BridgeTalk. Paths are absolute.")
 Seconds = Annotated[float, Field(ge=0)]
 Timeout = Annotated[int, Field(ge=30, le=7200)]
 Track = Annotated[int, Field(ge=0)]
@@ -25,8 +25,16 @@ class App(BaseModel):
 
 class Status(Result):
     premiere: App
-    photoshop: App
+    bridge: App
+    relay: str
+    mailbox: str
     prores_preset: str
+
+
+class BridgeInstall(Result):
+    path: str
+    matches: bool
+    next: str
 
 
 class Script(Result):
@@ -480,8 +488,14 @@ class TrackSet(BaseModel):
 
 @mcp.tool(annotations=READ_ONLY)
 async def premiere_status() -> Status:
-    """Installed Premiere Pro and Photoshop (the script relay), their pids, and the ProRes preset."""
+    """Installed Premiere Pro and Adobe Bridge (the script relay), pids, relay install state, mailbox and ProRes preset."""
     return await asyncio.to_thread(host.status)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_bridge_install() -> BridgeInstall:
+    """Copy the relay startup script into Adobe Bridge; restart Bridge and approve it once in its settings."""
+    return await asyncio.to_thread(host.bridge_install)
 
 
 @mcp.tool(annotations=WRITES)

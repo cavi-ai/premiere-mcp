@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cavi-premiere-mcp"
 dynamic = ["version"]
-description = "MCP server for Adobe Premiere Pro: scripts over a Photoshop relay and ProRes cuts from clip lists"
+description = "MCP server for Adobe Premiere Pro: scripts over an Adobe Bridge relay and ProRes cuts from clip lists"
 readme = "README.md"
 authors = [{ name = "CAVI AI" }]
 classifiers = [

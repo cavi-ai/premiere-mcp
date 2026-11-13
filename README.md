@@ -1,12 +1,12 @@
 # Premiere MCP
 
-MCP server for Adobe Premiere Pro on macOS. It runs ExtendScript in Premiere through a Photoshop
+MCP server for Adobe Premiere Pro on macOS. It runs ExtendScript in Premiere through an Adobe Bridge
 BridgeTalk relay, exposes the common Premiere operations as typed tools, and cuts a clip list into
 a new project with transitions and a ProRes 422 HQ master.
 
 ## Install
 
-Requires macOS, Premiere Pro 2026 or later, Photoshop 2026 or later (the script relay), FFmpeg
+Requires macOS, Premiere Pro 2026 or later, Adobe Bridge 2026 or later (the script relay), FFmpeg
 (`ffprobe`) and Python 3.15.
 
 ```sh
@@ -24,7 +24,8 @@ The server speaks MCP over stdio. Client configuration:
 
 | Tool | What it does |
 |---|---|
-| `premiere_status` | Installed Premiere Pro and Photoshop, their versions and pids, and the system ProRes 422 HQ export preset. |
+| `premiere_status` | Installed Premiere Pro and Adobe Bridge, versions and pids, relay install state, mailbox path, and the system ProRes 422 HQ export preset.
+| `premiere_bridge_install` | Copies the relay startup script into Adobe Bridge's user Startup Scripts folder and reports whether it matches the packaged copy. | |
 | `premiere_script` | Runs a `.jsx` file in Premiere with the globals `CAVI_ARGS` and `CAVI_REPORT` and returns its last value as `answer`. When `report` names a `.json` path, the script writes JSON there and the call returns it. |
 | `premiere_cut` | Cuts a clip list into a new project and exports a ProRes 422 HQ `.mov` master; returns the master's frame count from `ffprobe`. |
 | `premiere_project` | Opens, creates (`new` refuses an existing path unless `replace`), saves or closes a `.prproj`; `close_others` closes every other open project unsaved and `open` reports the count. |
@@ -57,7 +58,7 @@ The server speaks MCP over stdio. Client configuration:
 | `premiere_mogrt_add` | Imports a `.mogrt` onto a track at a time and sets its text parameters. |
 | `premiere_export` | Exports a sequence (whole, in/out range or work area, optional caption burn-in) with an `.epr` preset and confirms the file, the report and the `ffprobe` frame count. |
 
-Paths are absolute. Photoshop and Premiere Pro are opened in the background (`open -g -a`) when
+Paths are absolute. Adobe Bridge and Premiere Pro are opened in the background (`open -g -a`) when
 they are not running. Times are seconds; tracks are 0-based (`track` 0 is V1 or A1); `sequence`
 defaults to the active sequence. Every tool is a script in `src/cavi_premiere_mcp/jsx` run through
 the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
@@ -184,10 +185,14 @@ the relay with `CAVI_ARGS`, and answers the JSON report the script writes.
 
 ## Behavior notes
 
-Measured with Premiere Pro 2026 and Photoshop 2026 on macOS.
+Measured with Premiere Pro 2026 and Adobe Bridge 2026 on macOS.
 
-1. Premiere receives ExtendScript from Photoshop `do javascript` through BridgeTalk.
-   `BridgeTalk.send(timeout)` in Photoshop is synchronous, so the relay returns Premiere's answer.
+1. Bridge has no AppleScript dictionary, so a startup script, `cavi-bridge-relay.jsx`, relays jobs.
+   The client writes `<id>.job` (BridgeTalk target on the first line, script after it) into
+   `~/Library/Application Support/cavi-bridge-relay/`; the relay polls every 200 ms, sends the body
+   over BridgeTalk and writes `<id>.reply` (`ok` or `error`, then the result). The relay is
+   app-agnostic: the target is a parameter. Run `premiere_bridge_install`, restart Bridge and approve
+   the script once in Bridge Settings > Startup Scripts; until then the ping fails with an approval message.
    Headless After Effects (`-noui`) has no BridgeTalk and cannot serve as the relay.
 2. A Premiere that is still starting refuses BridgeTalk messages with
    `TARGET COULD NOT BE LAUNCHED`. The relay sends a ping every 5 seconds, for up to 300 seconds,
@@ -197,7 +202,7 @@ Measured with Premiere Pro 2026 and Photoshop 2026 on macOS.
 4. `exportAsMediaDirect` with the system preset `Apple ProRes 422 HQ.epr` writes the master
    synchronously. A ProRes movie with a timecode track lists `nb_frames` twice in `ffprobe`; the
    first value is the video stream's.
-5. A script body sent through BridgeTalk reaches Premiere with every backslash doubled, so the relay
+5. A script body sent through BridgeTalk reaches Premiere with every backslash doubled, so the client
    writes the script to a temporary file and Premiere evaluates that file.
 6. Premiere keeps showing the old frames of a source movie that is overwritten on disk while its
    project is open. Measured with a red 3 s ProRes clip on V1: the export read (255, 25, 0) at
