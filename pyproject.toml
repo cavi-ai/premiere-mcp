@@ -7,34 +7,55 @@ name = "cavi-premiere-mcp"
 dynamic = ["version"]
 description = "MCP server for Adobe Premiere Pro: scripts over an Adobe Bridge relay and ProRes cuts from clip lists"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "CAVI AI" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "premiere-pro",
+    "adobe",
+    "video-editing",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
     "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.15",
-    "Private :: Do Not Upload",
+    "Topic :: Multimedia :: Video",
 ]
 requires-python = ">=3.15"
 dependencies = [
-    "cavi-mcp-core",
+    "cavi-adobe-mcp>=0.4,<0.5",
+    "cavi-mcp-core>=0.1.2,<0.2",
     "mcp>=2.3,<3",
     "pydantic>=2.11,<3",
 ]
 
+[project.urls]
+Homepage = "https://github.com/cavi-ai/premiere-mcp#readme"
+Repository = "https://github.com/cavi-ai/premiere-mcp"
+Issues = "https://github.com/cavi-ai/premiere-mcp/issues"
+Changelog = "https://github.com/cavi-ai/premiere-mcp/blob/main/CHANGELOG.md"
+
 [project.scripts]
 cavi-premiere-mcp = "cavi_premiere_mcp.server:main"
-
-[tool.uv.sources]
-cavi-mcp-core = { git = "https://github.com/cavi-ai/mcp-core.git", branch = "main" }
 
 [dependency-groups]
 dev = ["pytest>=9,<10", "ruff>=0.14,<1"]
 
+# The version comes from the git tag: vX.Y.Z builds X.Y.Z, later commits X.Y.(Z+1).devN+g<sha>.
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cavi_premiere_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/README.md", "/LICENSE", "/CHANGELOG.md", "/pyproject.toml"]
 
 [tool.ruff]
 line-length = 110
