@@ -3,12 +3,12 @@
 import asyncio
 from typing import Annotated, Literal
 
-from cavi_mcp_core.contracts import Result
+from cavi_adobe_mcp.contracts import Result
 from cavi_mcp_core.server import DESTRUCTIVE
 from pydantic import BaseModel, Field
 
 from . import host
-from .server import Seconds, Timeout, mcp
+from .app import Seconds, Timeout, mcp
 
 
 def markers_edit(sequence, action, index, at, all_, name, comment, move_to, duration, timeout):
@@ -139,5 +139,6 @@ async def premiere_bins(action: Literal["create", "rename", "move", "delete"], n
                         parent: str | None = None, new_name: str | None = None, items: list[str] | None = None,
                         force: bool = False, timeout: Timeout = 300) -> Bins:
     """Organize project bins: create (inside parent, else the root), rename, move items (media path or name)
-    into a bin, or delete a bin (refused when it holds items unless force)."""
+    into a bin, or delete a bin (refused when it holds items unless force; deleting removes the bin's items
+    and their clips from every sequence)."""
     return await asyncio.to_thread(bins, action, name, parent, new_name, items, force, timeout)

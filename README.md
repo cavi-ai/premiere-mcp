@@ -10,21 +10,20 @@ Requires macOS, Premiere Pro 2026 or later, Adobe Bridge 2026 or later (the scri
 (`ffprobe`) and Python 3.15.
 
 ```sh
-uv sync
-uv run cavi-premiere-mcp
+uv tool install cavi-premiere-mcp
 ```
 
-The server speaks MCP over stdio. Client configuration:
+Register it in your MCP client; the server speaks MCP over stdio:
 
 ```json
-{"mcpServers": {"premiere": {"command": "uv", "args": ["--directory", "/path/to/premiere-mcp", "run", "cavi-premiere-mcp"]}}}
+{"mcpServers": {"premiere": {"command": "cavi-premiere-mcp"}}}
 ```
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
-| `premiere_status` | Installed Premiere Pro and Adobe Bridge, versions and pids, relay install state, mailbox path, and the system ProRes 422 HQ export preset.
+| `premiere_status` | Installed Premiere Pro, Adobe Bridge and Media Encoder (a missing one is reported in its entry), versions and pids, relay install state, mailbox path, and the system ProRes 422 HQ export preset.
 | `premiere_bridge_install` | Copies the relay startup script into Adobe Bridge's user Startup Scripts folder and reports whether it matches the packaged copy. | |
 | `premiere_script` | Runs a `.jsx` file in Premiere with the globals `CAVI_ARGS` and `CAVI_REPORT` and returns its last value as `answer`. When `report` names a `.json` path, the script writes JSON there and the call returns it. |
 | `premiere_cut` | Cuts a clip list into a new project and exports a ProRes 422 HQ `.mov` master; returns the master's frame count from `ffprobe`. |
@@ -263,3 +262,25 @@ uv sync --dev
 uv run ruff check .
 uv run pytest
 ```
+
+## Configuration
+
+| Variable | Meaning |
+|---|---|
+| `CAVI_PREMIERE_APP` | The Premiere Pro `.app` to use. |
+| `CAVI_BRIDGE_APP` | The Adobe Bridge `.app` to use. |
+| `CAVI_MEDIA_ENCODER_APP` | The Media Encoder `.app` to use. |
+
+Without an override the newest installed version under `/Applications` is used. An override that
+names another application is refused.
+
+## Failure handling
+
+- A tool error carries the cause as text.
+- A script that cannot write its report answers `ERROR`, and `premiere_script` raises when the script throws.
+- Projects open without conversion, locate-file or warning dialogs, because a modal dialog in Premiere blocks
+  every later call. A project with missing media opens with the media offline.
+- Premiere and Bridge turn a termination signal into an abort and write a crash report. Quit them from the
+  application, never with `kill`.
+- Inputs are checked before Premiere is touched: absolute paths, finite numbers, at most 5000 markers per
+  call, a plain file-name `prefix` for stills.

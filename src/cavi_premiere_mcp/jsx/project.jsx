@@ -21,7 +21,8 @@ function closeOthers(path) {
 function run(A, report) {
     if (A.action === "open") {
         closeAt(A.path);
-        if (!app.openDocument(A.path)) {
+        // No conversion, locate-file or warning dialog: a modal dialog stops every later call.
+        if (!app.openDocument(A.path, true, true, true, true)) {
             fail("Premiere could not open " + A.path);
         }
         if (A.close_others) {
@@ -36,6 +37,9 @@ function run(A, report) {
             closeOthers(A.path);
         }
     } else if (A.action === "save") {
+        if (!app.project) {
+            fail("No project is open");
+        }
         app.project.save();
     } else if (A.action === "close") {
         if (!app.project) {

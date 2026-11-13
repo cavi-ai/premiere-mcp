@@ -3,12 +3,12 @@
 import asyncio
 from typing import Annotated, Literal
 
-from cavi_mcp_core.contracts import Result
+from cavi_adobe_mcp.contracts import Result
 from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY
 from pydantic import BaseModel, Field
 
 from . import host
-from .server import Kind, Seconds, Timeout, Track, mcp
+from .app import Kind, Seconds, Timeout, Track, mcp
 
 SILENT_DB = -96
 
