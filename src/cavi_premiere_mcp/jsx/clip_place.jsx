@@ -32,7 +32,7 @@ function run(A, report) {
     each(lane.clips, function (clip, i) {
         if (!placed && Math.abs(secs(clip.start) - A.at) < 0.001) {
             placed = {position: i, name: clip.name, start: secs(clip.start), end: secs(clip.end),
-                in_point: secs(clip.inPoint), out_point: secs(clip.outPoint)};
+                in_point: secs(clip.inPoint), out_point: secs(clip.outPoint), media_path: mediaPath(clip.projectItem)};
         }
     });
     if (!placed) {
