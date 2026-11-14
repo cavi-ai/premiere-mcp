@@ -1,37 +1,48 @@
 # First cut
 
-Cut two generated clips and a score into a new Premiere Pro project with a 12-frame cross dissolve, and
-export a ProRes 422 HQ master. The still frames below were exported by Premiere Pro from that project at
-1, 2 and 4 seconds; the middle one is inside the dissolve.
+Three generated shots and a score, cut into a new Premiere Pro project with 12-frame cross dissolves and
+exported as a ProRes 422 HQ master. The stills were exported by Premiere Pro from that project at 1.5, 3,
+4.5 and 7.5 seconds: the server aisle, the aisle dissolving into the circuit board, the circuit board,
+and the glass cubes.
 
-![Three stills: a color test pattern, the pattern dissolving into color bars, and color bars](cut-frames.png)
+![Four stills from the cut: a server aisle, the aisle dissolving into a circuit board, the circuit board, and a row of lit glass cubes](cut-frames.png)
+
+## The inputs
+
+[media](media) holds the three shots and the score, ready to cut:
+
+| File | What it is |
+|---|---|
+| `aisle.mp4` | A forward dolly down a server aisle, 3.75 s, 1280 by 720 at 24 fps |
+| `circuit.mp4` | A pull back over a lit circuit board, 3.75 s, 1280 by 720 at 24 fps |
+| `cubes.mp4` | A lateral track past a row of lit glass cubes, 3.75 s, 1280 by 720 at 24 fps |
+| `score.wav` | 9 seconds of score at 120 BPM, 48 kHz, ending in a one-second fade |
+
+The shots were generated with Wan 2.1 text-to-video and the score was composed in Ableton Live. They are
+part of this repository and covered by its [MIT license](../../LICENSE).
 
 ## Reproduce it
 
-You need the server [installed and registered](../../docs/premiere-mcp/source/pages/introduction/installation.md),
-the [Bridge relay approved](../../docs/premiere-mcp/source/pages/guides/bridge-setup.md) and FFmpeg. Make the
-inputs in a folder `/work`:
+You need the server [installed and registered](../../docs/premiere-mcp/source/pages/introduction/installation.md)
+and the [Bridge relay approved](../../docs/premiere-mcp/source/pages/guides/bridge-setup.md). From a
+checkout, run the example against Premiere Pro, with a folder for the project, master and stills:
 
 ```sh
-ffmpeg -y -f lavfi -i "testsrc2=size=1280x720:rate=25:duration=3" -c:v libx264 -pix_fmt yuv420p -g 25 /work/pattern.mp4
-ffmpeg -y -f lavfi -i "smptebars=size=1280x720:rate=25:duration=3" -c:v libx264 -pix_fmt yuv420p -g 25 /work/bars.mp4
-ffmpeg -y -f lavfi -i "sine=frequency=220:duration=5" -c:a pcm_s16le -ar 48000 /work/score.wav
+uv run --locked python examples/first-cut/run.py ~/Desktop/first-cut
 ```
 
-Ask your agent to call `premiere_cut` with the arguments in [cut.json](cut.json), then to open the project
-with `premiere_project` and export stills with `premiere_frame_export` at 1, 2 and 4 seconds.
+[run.py](run.py) starts the server over stdio and calls `premiere_cut` with [cut.json](cut.json), then
+`premiere_project` to open the project, `premiere_inspect`, `premiere_frame_export` and
+`premiere_project` to close it. To do the same from your agent, ask it to make those calls with the media
+paths made absolute.
 
 ## What it returned
 
 [results.json](results.json) holds the measured results: the `premiere_cut` answer, the master as
-`ffprobe` reads it (ProRes `apch`, 1280 by 720, 25 fps, 125 frames), the sequence as `premiere_inspect`
+`ffprobe` reads it (ProRes `apch`, 1280 by 720, 24 fps, 216 frames), the sequence as `premiere_inspect`
 reports it, and the still sizes. Paths in the file are shortened to `/work`.
 
-- The master has 125 frames because the 5 second score sets the length; the clips end at 4.52 seconds
-  (`cut_frames` 113).
-- The second clip's source in point is 0.48 seconds: 0.5 seconds falls between frames at 25 fps and cut
-  times snap to the frame grid.
-- The dissolve runs from 1.76 to 2.24 seconds, centered on the cut at 2 seconds.
-
-The generated clips, the project and the master are not included; the inputs come from the commands
-above.
+- The sequence takes 24 fps and 1280 by 720 from the first clip.
+- The master has 216 frames: 9 seconds of clips and 9 seconds of score.
+- Each dissolve is centered on its cut: 2.75 to 3.25 seconds and 5.75 to 6.25 seconds. The 0.5 second
+  in points of the second and third clips leave the source handles the dissolves need.

@@ -24,15 +24,11 @@ Call `premiere_bridge_install`. It copies the relay into Bridge's Startup Script
 
 Do the restart and approval once; after that this step is only needed to update the relay.
 
-## 3. Make two clips
+## 3. Get the clips
 
-Any two clips with distinct file names work. These two come from FFmpeg:
-
-```sh
-ffmpeg -y -f lavfi -i "testsrc2=size=1280x720:rate=25:duration=3" -c:v libx264 -pix_fmt yuv420p -g 25 /work/pattern.mp4
-ffmpeg -y -f lavfi -i "smptebars=size=1280x720:rate=25:duration=3" -c:v libx264 -pix_fmt yuv420p -g 25 /work/bars.mp4
-ffmpeg -y -f lavfi -i "sine=frequency=220:duration=5" -c:a pcm_s16le -ar 48000 /work/score.wav
-```
+Any clips with distinct file names work. This walk-through uses the three shots and the score in
+`examples/first-cut/media` of the repository: `aisle.mp4`, `circuit.mp4` and `cubes.mp4` (3.75 seconds
+each, 1280 by 720 at 24 fps) and `score.wav` (9 seconds). Copy them to `/work`.
 
 ## 4. Cut them
 
@@ -40,31 +36,35 @@ Call `premiere_cut`:
 
 ```json
 {
-  "project": "/work/cut/cut.prproj",
-  "master": "/work/cut/master.mov",
+  "project": "/work/cut.prproj",
+  "master": "/work/master.mov",
   "audio": "/work/score.wav",
   "clips": [
-    {"file": "/work/pattern.mp4", "start": 0, "in_point": 0, "out_point": 2},
-    {"file": "/work/bars.mp4", "start": 2, "in_point": 0.5, "out_point": 3,
+    {"file": "/work/aisle.mp4", "start": 0, "in_point": 0, "out_point": 3},
+    {"file": "/work/circuit.mp4", "start": 3, "in_point": 0.5, "out_point": 3.5,
+     "transition": {"kind": "cross_dissolve", "frames": 12}},
+    {"file": "/work/cubes.mp4", "start": 6, "in_point": 0.5, "out_point": 3.5,
      "transition": {"kind": "cross_dissolve", "frames": 12}}
   ]
 }
 ```
 
-The call returned after about 25 seconds:
+It returned:
 
 ```json
-{"fps": "25", "frames": 125, "cut_frames": 113, "transitions": ["clip 2: Cross Dissolve 12f"], "warnings": []}
+{"fps": "24", "frames": 216, "cut_frames": 216,
+ "transitions": ["clip 2: Cross Dissolve 12f", "clip 3: Cross Dissolve 12f"], "warnings": []}
 ```
 
-`frames` is the frame count `ffprobe` read from the exported master (the 5 second score sets the
-length). `cut_frames` is the end of the last clip, 4.52 seconds. The second clip's source in point is
-0.48 because 0.5 seconds is between frames at 25 fps and cut times are snapped to the frame grid.
+`frames` is the frame count `ffprobe` read from the exported master, 9 seconds at the first clip's 24
+fps. `cut_frames` is the end of the last clip; it matches because the score and the clips both end at 9
+seconds. The second and third clips start their source at 0.5 seconds, which leaves the handles each
+centered dissolve needs.
 
 ## 5. Look at the result
 
 Open the project with `premiere_project` (`action` `open`, `path` the `.prproj`), then call
-`premiere_frame_export` with `times` `[2]`, a `folder` and a `prefix`. The still it writes (1280 by 720)
-shows the dissolve between the two clips.
+`premiere_frame_export` with `times` `[1.5, 3, 4.5, 7.5]` and a `folder`. It writes four 1280 by 720
+PNGs: the aisle, the aisle dissolving into the circuit board, the circuit board and the glass cubes.
 
 [Make a first edit](../guides/first-edit.md) builds the same kind of result clip by clip.

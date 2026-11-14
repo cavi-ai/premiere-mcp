@@ -1,11 +1,11 @@
 {
   "premiere_cut": {
-    "project": "/work/cut/cut.prproj",
-    "master": "/work/cut/master.mov",
-    "fps": "25",
-    "frames": 125,
-    "cut_frames": 113,
-    "transitions": ["clip 2: Cross Dissolve 12f"],
+    "project": "/work/cut.prproj",
+    "master": "/work/master.mov",
+    "fps": "24",
+    "frames": 216,
+    "cut_frames": 216,
+    "transitions": ["clip 2: Cross Dissolve 12f", "clip 3: Cross Dissolve 12f"],
     "warnings": []
   },
   "ffprobe_master": {
@@ -13,20 +13,27 @@
     "codec_tag_string": "apch",
     "width": 1280,
     "height": 720,
-    "r_frame_rate": "25/1",
-    "nb_frames": 125
+    "r_frame_rate": "24/1",
+    "nb_frames": 216
   },
   "inspect_sequence": {
     "name": "CUT",
-    "fps": 25.0,
+    "fps": 24.0,
     "width": 1280,
     "height": 720,
-    "end": 5.0,
+    "end": 9.0,
     "video_1_clips": [
-      {"name": "pattern.mp4", "start": 0.0, "end": 2.0, "in_point": 0.0, "out_point": 2.0},
-      {"name": "bars.mp4", "start": 2.0, "end": 4.52, "in_point": 0.48, "out_point": 3.0}
+      {"name": "aisle.mp4", "start": 0.0, "end": 3.0, "in_point": 0.0, "out_point": 3.0},
+      {"name": "circuit.mp4", "start": 3.0, "end": 6.0, "in_point": 0.5, "out_point": 3.5},
+      {"name": "cubes.mp4", "start": 6.0, "end": 9.0, "in_point": 0.5, "out_point": 3.5}
     ],
-    "video_1_transitions": [{"name": "Cross Dissolve", "start": 1.76, "end": 2.24}]
+    "video_1_transitions": [
+      {"name": "Cross Dissolve", "start": 2.75, "end": 3.25},
+      {"name": "Cross Dissolve", "start": 5.75, "end": 6.25}
+    ],
+    "audio_1_clips": [
+      {"name": "score.wav", "start": 0.0, "end": 9.0, "in_point": 0.0, "out_point": 9.0}
+    ]
   },
-  "frame_export": {"times": [1.0, 2.0, 4.0], "width": 1280, "height": 720}
+  "frame_export": {"times": [1.5, 3.0, 4.5, 7.5], "width": 1280, "height": 720}
 }

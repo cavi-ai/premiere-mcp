@@ -1,10 +1,10 @@
 {
-  "project": "/work/cut/cut.prproj",
-  "master": "/work/cut/master.mov",
-  "audio": "/work/score.wav",
+  "audio": "media/score.wav",
   "clips": [
-    {"file": "/work/pattern.mp4", "start": 0, "in_point": 0, "out_point": 2},
-    {"file": "/work/bars.mp4", "start": 2, "in_point": 0.5, "out_point": 3,
+    {"file": "media/aisle.mp4", "start": 0, "in_point": 0, "out_point": 3},
+    {"file": "media/circuit.mp4", "start": 3, "in_point": 0.5, "out_point": 3.5,
+     "transition": {"kind": "cross_dissolve", "frames": 12}},
+    {"file": "media/cubes.mp4", "start": 6, "in_point": 0.5, "out_point": 3.5,
      "transition": {"kind": "cross_dissolve", "frames": 12}}
   ]
 }
