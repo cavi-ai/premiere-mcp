@@ -69,3 +69,19 @@ jobs:
             .tmp/evals/*/evaluator.json
             .tmp/evals/evaluator/cargo-install.json
           if-no-files-found: error
+
+  pin-consumers:
+    needs: [check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require CONSUMER_DISPATCH_TOKEN
+        env:
+          TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
+        run: test -n "$TOKEN" || { echo "::error::Add the CONSUMER_DISPATCH_TOKEN repository secret"; exit 1; }
+      - name: Dispatch server-merged to game-art-pipeline
+        env:
+          GH_TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
+        run: gh api repos/cavi-ai/game-art-pipeline/dispatches --method POST -f event_type=server-merged
