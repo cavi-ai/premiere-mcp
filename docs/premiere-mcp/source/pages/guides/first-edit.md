@@ -1,9 +1,9 @@
 # Make a first edit
 
 This guide builds a short edit clip by clip: a new project, two clips, a dissolve, a Motion change
-and an export. It uses the two clips from the [quickstart](../introduction/quickstart.md). The results
-below are from a real run; folder paths are shortened to `/work`, and `warnings` and `errors` lists
-that were empty are left out.
+and an export. It uses `aisle.mp4` and `circuit.mp4` from the [quickstart](../introduction/quickstart.md).
+The results below are from a real run; folder paths are shortened to `/work`, and `warnings` and
+`errors` lists that were empty are left out.
 
 ## 1. Create the project
 
@@ -20,7 +20,7 @@ true.
 ## 2. Import the media
 
 ```json
-{"files": ["/work/pattern.mp4", "/work/bars.mp4"], "bin": "Source"}
+{"files": ["/work/aisle.mp4", "/work/circuit.mp4"], "bin": "Source"}
 ```
 
 `premiere_import` creates the `Source` bin and returns each file's `name` and `media_path`.
@@ -30,23 +30,23 @@ true.
 `premiere_sequence_new` takes its settings from a project item:
 
 ```json
-{"name": "Edit", "clip": "/work/pattern.mp4"}
+{"name": "Edit", "clip": "/work/aisle.mp4"}
 ```
 
-The result: `fps` 25, `width` 1280, `height` 720, with 3 video and 3 audio tracks.
+The result: `fps` 24, `width` 1280, `height` 720, with 3 video and 3 audio tracks.
 
 ## 4. Place the clips
 
 `premiere_clip_place` takes a project item as a media path or a name, and a time:
 
 ```json
-{"item": "/work/pattern.mp4", "at": 0}
-{"item": "bars.mp4", "at": 3, "in_point": 0, "out_point": 2}
+{"item": "/work/aisle.mp4", "at": 0, "in_point": 0, "out_point": 3}
+{"item": "circuit.mp4", "at": 3, "in_point": 0.5, "out_point": 3.5}
 ```
 
 Each call returns the placed `clip` with its track `position`, `start`, `end`, source `in_point` and
-`out_point` and `media_path`. The first clip fills 0 to 3 seconds; the second, with source 0 to 2
-seconds, fills 3 to 5.
+`out_point` and `media_path`. The aisle fills 0 to 3 seconds; the circuit board, with source 0.5 to 3.5
+seconds, fills 3 to 6.
 
 ## 5. Add a dissolve
 
@@ -55,7 +55,8 @@ seconds, fills 3 to 5.
 ```
 
 `premiere_transition_add` puts the transition at the start of the clip at 3 seconds. With the default
-`alignment` of 0.5 it is centered on the cut, and the result reported `start` 2.76 and `end` 3.24.
+`alignment` of 0.5 it is centered on the cut, and the result reported `start` 2.75 and `end` 3.25. The
+dissolve reaches its full length because both clips have source beyond the cut.
 
 ## 6. Change the first clip
 
@@ -72,9 +73,9 @@ top left, rotation in degrees and `volume_db` for audio; `keyframes` animate any
 {"master": "/work/edit/edit.mov"}
 ```
 
-`premiere_export` uses ProRes 422 HQ unless `preset` names another. The result had `frames` 125 and
-`expected_frames` 125 with `complete` true: the frame count `ffprobe` read from the file equals the
-sequence length (5 seconds at 25 fps).
+`premiere_export` uses ProRes 422 HQ unless `preset` names another. The result had `frames` 144 and
+`expected_frames` 144 with `complete` true: the frame count `ffprobe` read from the file equals the
+sequence length (6 seconds at 24 fps).
 
 ## 8. Save
 

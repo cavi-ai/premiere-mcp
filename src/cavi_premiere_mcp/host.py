@@ -445,15 +445,19 @@ def transitions(timeout):
 
 
 def preset_roots(kind):
-    """(source, folder) pairs holding .epr export or .sqpreset sequence presets."""
+    """(source, folder) pairs holding .epr export or .sqpreset sequence presets; Premiere's own when it is found."""
     home = Path.home() / "Documents/Adobe"
+    try:
+        installed = premiere()
+    except apps.AppUnavailable:
+        installed = None
+    own = "Contents/MediaIO/systempresets" if kind == "export" else "Contents/Settings/SequencePresets"
+    roots = [("premiere", installed / own)] if installed else []
     if kind == "export":
-        roots = [("premiere", premiere() / "Contents/MediaIO/systempresets")]
         roots += [("media_encoder", app / "Contents/MediaIO/systempresets")
                   for app in sorted(Path("/Applications").glob("Adobe Media Encoder 20*/Adobe Media Encoder 20*.app"))]
         roots += [("user", folder) for folder in sorted((home / "Adobe Media Encoder").glob("*/Presets"))]
     else:
-        roots = [("premiere", premiere() / "Contents/Settings/SequencePresets")]
         roots += [("user", folder) for folder in sorted((home / "Premiere Pro").glob("*/Profile-*/Settings/Custom"))]
     return roots
 
@@ -793,9 +797,10 @@ def render(tool, sequence, master, preset, range_, replace, timeout, burn_captio
     """
     if range_ not in ("entire", "in_out", "work_area"):
         raise ValueError(f"range is entire, in_out or work_area: {range_}")
-    master, preset = absolute(master), Path(resolve_preset("export", preset) if preset else prores_preset())
+    master = absolute(master)
     if master.exists() and not replace:
         raise ValueError(f"Already exists (pass replace=true): {master}")
+    preset = Path(resolve_preset("export", preset) if preset else prores_preset())
     with tempfile.TemporaryDirectory(prefix="premiere-render-") as folder:
         if burn_captions is not None:
             preset = caption_preset(preset, burn_captions, folder)

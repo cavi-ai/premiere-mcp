@@ -9,15 +9,15 @@ a new project with transitions and a ProRes 422 HQ master.
 
 ## Try one cut
 
-Cut two clips and a score into a new project with a 12-frame cross dissolve, and export the master. The
-stills below were exported by Premiere Pro from that project at 1, 2 and 4 seconds.
+Cut three shots and a score into a new project with cross dissolves, and export the master. The stills
+below were exported by Premiere Pro from that project at 1.5, 3, 4.5 and 7.5 seconds.
 
-![Three stills from the cut: a color test pattern, the pattern dissolving into color bars, and color bars](examples/first-cut/cut-frames.png)
+![Four stills from the cut: a server aisle, the aisle dissolving into a circuit board, the circuit board, and a row of lit glass cubes](examples/first-cut/cut-frames.png)
 
-The request is [cut.json](examples/first-cut/cut.json) and the measured answer is
-[results.json](examples/first-cut/results.json): a ProRes 422 HQ master, 1280 by 720 at 25 fps, with 125
-frames counted by `ffprobe`. [Reproduce the cut](examples/first-cut/README.md); it needs only FFmpeg and
-the generated inputs.
+The request is [cut.json](examples/first-cut/cut.json), the shots and score are in
+[examples/first-cut/media](examples/first-cut/media), and the measured answer is
+[results.json](examples/first-cut/results.json): a 9 second ProRes 422 HQ master, 1280 by 720 at 24 fps,
+216 frames counted by `ffprobe`. [Reproduce the cut](examples/first-cut/README.md) with one command.
 
 ## Install
 
@@ -48,8 +48,8 @@ If your client does not inherit your shell's `PATH`, use the absolute path that
 
 1. Call `premiere_status` to see the installed applications and the relay state.
 2. Call `premiere_bridge_install`, restart Bridge and approve the relay, once.
-3. Call `premiere_cut` with the request from [cut.json](examples/first-cut/cut.json), then
-   `premiere_inspect` to read the new project back.
+3. Call `premiere_cut` with the request from [cut.json](examples/first-cut/cut.json), its media paths
+   made absolute, then `premiere_inspect` to read the new project back.
 
 The [quickstart](docs/premiere-mcp/source/pages/introduction/quickstart.md) shows each step with its result.
 Paths are absolute, times are seconds, tracks are 0-based, and `sequence` defaults to the active sequence.
