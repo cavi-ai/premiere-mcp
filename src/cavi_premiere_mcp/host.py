@@ -793,9 +793,10 @@ def render(tool, sequence, master, preset, range_, replace, timeout, burn_captio
     """
     if range_ not in ("entire", "in_out", "work_area"):
         raise ValueError(f"range is entire, in_out or work_area: {range_}")
-    master, preset = absolute(master), Path(resolve_preset("export", preset) if preset else prores_preset())
+    master = absolute(master)
     if master.exists() and not replace:
         raise ValueError(f"Already exists (pass replace=true): {master}")
+    preset = Path(resolve_preset("export", preset) if preset else prores_preset())
     with tempfile.TemporaryDirectory(prefix="premiere-render-") as folder:
         if burn_captions is not None:
             preset = caption_preset(preset, burn_captions, folder)
