@@ -1,6 +1,5 @@
 # Cavi Premiere MCP
 
-[![PyPI version](https://img.shields.io/pypi/v/cavi-premiere-mcp)](https://pypi.org/project/cavi-premiere-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 MCP server for Adobe Premiere Pro on macOS. It runs ExtendScript in Premiere Pro through an Adobe Bridge
