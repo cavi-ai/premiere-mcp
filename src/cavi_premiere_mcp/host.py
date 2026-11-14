@@ -445,15 +445,19 @@ def transitions(timeout):
 
 
 def preset_roots(kind):
-    """(source, folder) pairs holding .epr export or .sqpreset sequence presets."""
+    """(source, folder) pairs holding .epr export or .sqpreset sequence presets; Premiere's own when it is found."""
     home = Path.home() / "Documents/Adobe"
+    try:
+        installed = premiere()
+    except apps.AppUnavailable:
+        installed = None
+    own = "Contents/MediaIO/systempresets" if kind == "export" else "Contents/Settings/SequencePresets"
+    roots = [("premiere", installed / own)] if installed else []
     if kind == "export":
-        roots = [("premiere", premiere() / "Contents/MediaIO/systempresets")]
         roots += [("media_encoder", app / "Contents/MediaIO/systempresets")
                   for app in sorted(Path("/Applications").glob("Adobe Media Encoder 20*/Adobe Media Encoder 20*.app"))]
         roots += [("user", folder) for folder in sorted((home / "Adobe Media Encoder").glob("*/Presets"))]
     else:
-        roots = [("premiere", premiere() / "Contents/Settings/SequencePresets")]
         roots += [("user", folder) for folder in sorted((home / "Premiere Pro").glob("*/Profile-*/Settings/Custom"))]
     return roots
 

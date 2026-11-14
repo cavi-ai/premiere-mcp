@@ -29,5 +29,6 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_scene_detect` reports a missing sequence, track or clip, and an unreadable movie, instead of failing with an index error or an empty result.
 - A Bridge that is still starting is waited for instead of reported as an unapproved relay.
 - `premiere_export` and `premiere_encode` refuse an existing master before looking up the default preset.
+- `premiere_presets` lists Media Encoder and user presets when Premiere Pro is not installed.
 - `premiere_clip_place` failed after placing the clip because its result had no `media_path`.
 - Stale mailbox files are removed.

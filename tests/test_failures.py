@@ -66,6 +66,12 @@ class StatusTest(unittest.TestCase):
             self.assertIn("not an application", found[name]["error"])
         self.assertIsNone(found["prores_preset"])
 
+    def test_presets_are_listed_without_premiere(self):
+        with mock.patch.dict(os.environ, {"CAVI_PREMIERE_APP": "/nonexistent/Premiere.app"}):
+            found = host.all_presets()
+        self.assertEqual(set(found), {"export", "sequence"})
+        self.assertEqual([p for kind in found.values() for p in kind if p["source"] == "premiere"], [])
+
 
 class SceneDetectTest(unittest.TestCase):
     def inspected(self, sequences):
