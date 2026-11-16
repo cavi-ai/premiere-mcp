@@ -1,22 +1,14 @@
 # Cavi Premiere MCP
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![An illustrated penguin editor arranging film of a coastal journey](assets/premiere-mcp-hero.png)
 
-MCP server for Adobe Premiere Pro on macOS. It runs ExtendScript in Premiere Pro through an Adobe Bridge
-BridgeTalk relay, exposes the common Premiere Pro operations as 42 typed tools, and cuts a clip list into
-a new project with transitions and a ProRes 422 HQ master.
+## You call the shots.
 
-## Try one cut
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![PyPI weekly downloads](https://img.shields.io/pypi/dw/cavi-premiere-mcp?label=PyPI%20downloads%2Fweek)](https://pypi.org/project/cavi-premiere-mcp/)
 
-Cut three shots and a score into a new project with cross dissolves, and export the master. The stills
-below were exported by Premiere Pro from that project at 1.5, 3, 4.5 and 7.5 seconds.
+Give your editing partner the footage and the direction. Cavi Premiere MCP works in a native Premiere Pro project: organize clips, shape sequences, review still frames and export a ProRes master. The project stays editable in Premiere.
 
-![Four stills from the cut: a server aisle, the aisle dissolving into a circuit board, the circuit board, and a row of lit glass cubes](examples/first-cut/cut-frames.png)
-
-The request is [cut.json](examples/first-cut/cut.json), the shots and score are in
-[examples/first-cut/media](examples/first-cut/media), and the measured answer is
-[results.json](examples/first-cut/results.json): a 9 second ProRes 422 HQ master, 1280 by 720 at 24 fps,
-216 frames counted by `ffprobe`. [Reproduce the cut](examples/first-cut/README.md) with one command.
+Bring your own footage and licensed Adobe applications. The server connects to Premiere Pro through an Adobe Bridge relay.
 
 ## Install
 
@@ -42,18 +34,34 @@ Register the stdio server with your MCP client:
 {"mcpServers": {"premiere": {"command": "cavi-premiere-mcp"}}}
 ```
 
-If your client does not inherit your shell's `PATH`, use the absolute path that
-`command -v cavi-premiere-mcp` prints. Then ask your agent to:
+If your client does not inherit your shell's `PATH`, use the absolute path that `command -v cavi-premiere-mcp` prints. Install and approve the relay using the [Bridge setup guide](docs/premiere-mcp/source/pages/guides/bridge-setup.md), then try a request like:
 
-1. Call `premiere_status` to see the installed applications and the relay state.
-2. Call `premiere_bridge_install`, restart Bridge and approve the relay, once.
-3. Call `premiere_cut` with the request from [cut.json](examples/first-cut/cut.json), its media paths
-   made absolute, then `premiere_inspect` to read the new project back.
+> Cut these three shots to the music, add dissolves, show me stills from the sequence and export a ProRes master.
 
-The [quickstart](docs/premiere-mcp/source/pages/introduction/quickstart.md) shows each step with its result.
-Paths are absolute, times are seconds, tracks are 0-based, and `sequence` defaults to the active sequence.
+The [quickstart](docs/premiere-mcp/source/pages/introduction/quickstart.md) walks through a first edit. See the [example cut](examples/first-cut/README.md) for the source media and result.
 
-## What it does
+## Try one cut
+
+This example cuts three shots and a score into a Premiere project with dissolves and a ProRes master.
+
+![Four frames from the example cut](examples/first-cut/cut-frames.png)
+
+[Explore the example and source media](examples/first-cut/README.md).
+
+## What you can do
+
+| Work | In Premiere Pro |
+|---|---|
+| Organize | Import media, arrange bins and find clips. |
+| Edit | Create sequences, place and trim clips, and work with tracks. |
+| Refine | Add transitions, adjust color and animate clip properties. |
+| Review | Inspect the project and export still frames. |
+| Deliver | Export a sequence or queue it in Media Encoder. |
+
+See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for the full set of operations and parameters.
+
+<details>
+<summary>Tool inventory</summary>
 
 | Tool | What it does |
 |---|---|
@@ -100,9 +108,7 @@ Paths are absolute, times are seconds, tracks are 0-based, and `sequence` defaul
 | `premiere_encode` | Queues a sequence in Media Encoder. |
 | `premiere_interchange` | Exports FCP XML, AAF or OMF, or imports an FCP XML. |
 
-Every tool is a script in `src/cavi_premiere_mcp/jsx` run through the relay with `CAVI_ARGS`, and answers
-the JSON report the script writes. The [tools reference](docs/premiere-mcp/source/pages/reference/tools.md)
-has each tool's parameters, defaults and results.
+</details>
 
 ## Documentation
 
@@ -140,23 +146,6 @@ The server speaks MCP over stdio, sends no telemetry and uses no accounts. `prem
 caller-chosen `.jsx` file in Premiere Pro, and any local process that can write the relay mailbox can run
 ExtendScript in Adobe applications. See the
 [security model](docs/premiere-mcp/source/pages/security/model.md) and [SECURITY.md](SECURITY.md).
-
-## Tests
-
-```sh
-uv sync --locked --dev
-uv run --locked ruff check .
-uv run --locked pytest -q
-npm install
-npm run eval:protocol
-npm run eval:core
-```
-
-The unit tests need no Adobe application; tests that need FFmpeg or Node.js skip without them. The
-tests also fail when the README or the tools reference and the registered tools differ. The two evals run
-the server over stdio with MCP Eval: `eval:protocol` checks the MCP contract of the catalog, and
-`eval:core` also plays the input checks that happen before Premiere Pro is touched. They use no Adobe
-application, so they do not exercise the tools inside Premiere Pro.
 
 ## Contributing
 
