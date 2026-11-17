@@ -3,12 +3,12 @@
 import asyncio
 from typing import Annotated, Literal
 
-from cavi_adobe_mcp.contracts import Result
 from cavi_mcp_core.server import DESTRUCTIVE
 from pydantic import BaseModel, Field
 
 from . import host
 from .app import Seconds, SequenceName, Timeout, mcp
+from .models import Result
 
 
 def markers_edit(sequence, action, index, at, all_, name, comment, move_to, duration, timeout):
