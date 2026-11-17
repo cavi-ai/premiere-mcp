@@ -1,5 +1,7 @@
+import re
 import sys
 import unittest
+from importlib import metadata
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -14,6 +16,13 @@ TOOLS = {"premiere_status", "premiere_bridge_install", "premiere_script", "premi
          "premiere_scene_detect", "premiere_markers_edit", "premiere_gaps", "premiere_range_remove",
          "premiere_bins", "premiere_fade", "premiere_find", "premiere_clip_copy",
          "premiere_color", "premiere_clip_slip"}
+
+
+class PackageTest(unittest.TestCase):
+    def test_installs_no_other_application_server(self):
+        required = {re.split(r"[^A-Za-z0-9._-]", line, maxsplit=1)[0] for line in metadata.requires("cavi-premiere-mcp")}
+        self.assertNotIn("cavi-adobe-mcp", required)
+        self.assertIn("cavi-mcp-core", required)
 
 
 class ProtocolTest(unittest.IsolatedAsyncioTestCase):

@@ -4,6 +4,10 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Changed
+
+- No longer depends on `cavi-adobe-mcp`.
+
 ## 0.1.0 - 2026-11-14
 
 ### Added

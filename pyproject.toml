@@ -29,7 +29,6 @@ classifiers = [
 ]
 requires-python = ">=3.15"
 dependencies = [
-    "cavi-adobe-mcp>=0.4,<0.5",
     "cavi-mcp-core>=0.1.2,<0.2",
     "mcp>=2.3,<3",
     "pydantic>=2.11,<3",
