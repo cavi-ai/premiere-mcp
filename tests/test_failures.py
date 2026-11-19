@@ -1,5 +1,6 @@
 """Failures that used to crash a call, hang it or return a wrong success, each shown through the real code."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -13,13 +14,136 @@ from unittest import mock
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from cavi_premiere_mcp import host
+from cavi_premiere_mcp import clip_tools, host
 
 JSX = Path(host.__file__).with_name("jsx")
 
 
 def reached_the_app(*args, **kwargs):
     raise AssertionError("the call reached Premiere")
+
+
+NODE_FILES = """
+var fs = require("fs");
+function File(path) { this.fsName = path; this.name = path.split("/").pop(); this.exists = true; this.text = ""; }
+File.prototype.open = function () { return true; };
+File.prototype.write = function (text) { this.text += text; };
+File.prototype.close = function () { fs.writeFileSync(this.fsName, this.text); };
+"""
+
+TWO_SEQUENCES = """
+var ProjectItemType = {BIN: 1, ROOT: 2, CLIP: 3};
+var item = {name: "a.mp4", type: 3, nodeId: "m", getMediaPath: function () { return "/m/a.mp4"; },
+    getColorLabel: function () { return 0; }, isOffline: function () { return false; },
+    getProjectMetadata: function () { return ""; },
+    getInPoint: function () { return {seconds: 0}; }, getOutPoint: function () { return {seconds: 3}; },
+    setInPoint: function () {}, setOutPoint: function () {}};
+function placed(source, at) {
+    return {name: source.name, start: {seconds: at}, end: {seconds: at + 3}, inPoint: {seconds: 0},
+        outPoint: {seconds: 3}, projectItem: source};
+}
+function sequence(name, id) {
+    var lane = {name: "V1", transitions: {numItems: 0}, clips: {numItems: 1, 0: placed(item, 0)},
+        overwriteClip: function (source, at) { this.clips[this.clips.numItems++] = placed(source, at); }};
+    return {name: name, sequenceID: id, projectItem: {nodeId: "s" + id}, timebase: "10160640000", end: "0",
+        frameSizeHorizontal: 1920, frameSizeVertical: 1080, markers: {getFirstMarker: function () { return null; }},
+        videoTracks: {numTracks: 1, 0: lane}, audioTracks: {numTracks: 0}};
+}
+var first = sequence("First", "1"), active = sequence("Active", "2");
+var app = {project: {path: "/p.prproj", rootItem: {type: 2, children: {numItems: 1, 0: item}},
+    sequences: {numSequences: 2, 0: first, 1: active}, activeSequence: active,
+    openSequence: function (id) { this.activeSequence = id === "1" ? first : active; }}};
+"""
+
+
+def node_relay(stub):
+    """A relay that runs each job in node against a stubbed Premiere and answers as the Bridge relay does."""
+    def relay(body, timeout):
+        script = NODE_FILES + stub + f"\nprocess.stdout.write(String(eval({json.dumps(body)})));"
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+        if result.returncode:
+            raise AssertionError(result.stderr)
+        return result.stdout
+    return relay
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class ActiveSequenceTest(unittest.TestCase):
+    def test_a_copy_without_a_sequence_goes_to_the_active_one(self):
+        with mock.patch.object(host, "relay", node_relay(TWO_SEQUENCES)):
+            copied = clip_tools.copy(None, "video", 0, 1.0, None, 5.0, None, 60)
+        self.assertEqual((copied["sequence"], copied["clip"]["start"]), ("Active", 5))
+
+    def test_a_cut_closes_only_a_project_open_at_its_path(self):
+        script = NODE_FILES + """
+var closed = [];
+function project(path) { return {path: path, closeDocument: function () { closed.push(path); }}; }
+var app = {projects: {numProjects: 2, 0: project("/work/edit.prproj"), 1: project("/cuts/cut.prproj")},
+    newProject: function () { return false; }};
+""" + (JSX / "lib.jsx").read_text() + (JSX / "cut.jsx").read_text() + """
+try { run({project: "/cuts/cut.prproj", clips: []}, {warnings: [], errors: []}); } catch (error) {}
+process.stdout.write(JSON.stringify(closed));"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), ["/cuts/cut.prproj"])
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is required")
+@unittest.skipUnless(shutil.which("lsof"), "lsof is required")
+class KeptUntilCheckedTest(unittest.TestCase):
+    """Old outputs stay until every check that can refuse the call has passed; a written master is counted."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="premiere-kept-"))
+        self.addCleanup(shutil.rmtree, self.root)
+        self.preset = self.root / "p.epr"
+        self.preset.write_text("")
+
+    def movie(self, name, source):
+        path = self.root / name
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", source, str(path)], check=True)
+        return path
+
+    def exported(self, made):
+        """A relay that writes the master and the report as export.jsx does: one second at 25 fps."""
+        def relay(body, timeout):
+            args = json.loads(body.split("\n", 1)[0].removeprefix("var CAVI_ARGS = ").removesuffix(";"))
+            shutil.copyfile(made, args["master"])
+            Path(args["report"]).write_text(json.dumps({"errors": [], "warnings": [], "sequence": "S", "span": 1,
+                                                        "fps": 25}))
+            return "OK"
+        return relay
+
+    def test_cut_keeps_the_old_project_and_master_without_a_prores_preset(self):
+        clip = self.movie("a.mov", "color=c=red:s=64x36:r=25:d=1")
+        old = [self.root / name for name in ("cut.prproj", "cut.mov", "cut.report.json")]
+        for path in old:
+            path.write_text("kept")
+        gone = {"CAVI_PREMIERE_APP": "/nonexistent/Premiere.app"}
+        with mock.patch.dict(os.environ, gone), mock.patch.object(host, "relay", reached_the_app):
+            with self.assertRaisesRegex(ValueError, "not an application"):
+                host.cut(old[0], old[1], [{"file": str(clip), "start": 0, "in_point": 0, "out_point": 1}], None,
+                         True, 60)
+        self.assertEqual([path.read_text() for path in old], ["kept"] * 3)
+
+    def test_encode_keeps_the_old_master_without_media_encoder(self):
+        master = self.root / "m.mov"
+        master.write_text("kept")
+        gone = {"CAVI_MEDIA_ENCODER_APP": "/nonexistent/Encoder.app"}
+        with mock.patch.dict(os.environ, gone), mock.patch.object(host, "relay", reached_the_app):
+            with self.assertRaisesRegex(ValueError, "not an application"):
+                host.encode(None, master, self.preset, "entire", True, 60)
+        self.assertEqual(master.read_text(), "kept")
+
+    def test_a_master_whose_container_keeps_no_frame_count_is_counted(self):
+        with mock.patch.object(host, "relay", self.exported(self.movie("made.mkv", "color=c=red:s=64x36:r=25:d=1"))):
+            result = host.export(None, self.root / "m.mkv", self.preset, "entire", False, 60)
+        self.assertEqual((result["frames"], result["expected_frames"], result["complete"]), (25, 25, True))
+
+    def test_a_master_without_video_is_judged_by_its_audio(self):
+        with mock.patch.object(host, "relay", self.exported(self.movie("made.wav", "sine=d=1:r=48000"))):
+            result = host.export(None, self.root / "m.wav", self.preset, "entire", False, 60)
+        self.assertEqual((result["frames"], result["expected_frames"], result["complete"]), (25, 25, True))
 
 
 class ProtocolFailureTest(unittest.IsolatedAsyncioTestCase):

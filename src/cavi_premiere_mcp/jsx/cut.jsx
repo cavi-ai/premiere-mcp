@@ -22,8 +22,7 @@ function run(A, report) {
     report.project = A.project;
     report.master = A.master;
     report.transitions = [];
-    // A project left open by an earlier cut stalls newProject on the same path, so close every one unsaved.
-    closeAll();
+    closeAt(A.project);
     if (!app.newProject(A.project)) {
         fail("Premiere could not create " + A.project);
     }

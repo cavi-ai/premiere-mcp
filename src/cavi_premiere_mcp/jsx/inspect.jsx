@@ -1,5 +1,6 @@
 // Describe the open project: bins, project items, sequences with every track's clips and
-// transitions, and sequence markers. Input: {sequence} (a name; every sequence when empty).
+// transitions, and sequence markers. Input: {sequence, active}: the named sequence; with no name, every
+// sequence, or only the active one when active is true.
 // Seconds of a media timecode at a media rate such as 29.97: its frames are counted at the whole timecode
 // base (30) and last 1001/30000 s each; a ";" timecode at 29.97 or 59.94 is drop frame.
 function seconds(code, rate) {
@@ -92,7 +93,7 @@ function sequenceInfo(sequence) {
 }
 
 function run(A, report) {
-    var ids = {}, bins = [], items = [];
+    var ids = {}, bins = [], items = [], active;
     if (!app.project) {
         fail("No project is open");
     }
@@ -113,8 +114,10 @@ function run(A, report) {
     report.bins = bins;
     report.items = items;
     report.sequences = [];
+    active = app.project.activeSequence;
     each(app.project.sequences, function (sequence) {
-        if (!A.sequence || sequence.name === A.sequence) {
+        if (A.sequence ? sequence.name === A.sequence
+                : !A.active || (active && sequence.sequenceID === active.sequenceID)) {
             report.sequences.push(sequenceInfo(sequence));
         }
     });

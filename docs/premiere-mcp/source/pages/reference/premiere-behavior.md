@@ -22,7 +22,7 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
 ## Projects and media
 
 5. Premiere Pro stalls in `app.newProject()` when an earlier project is still open at the same path. The cut
-   closes every open project unsaved (`closeDocument(0, 0)`) before creating its project.
+   closes a project open at its path unsaved (`closeDocument(0, 0)`) before creating its project.
 6. Premiere Pro keeps showing the old frames of a source movie that is overwritten on disk while its
    project is open. Measured with a red 3 s ProRes clip on V1: the export read (255, 25, 0) at frame 25;
    after the file was overwritten with blue the next export still read (255, 25, 0), and `refreshMedia`
