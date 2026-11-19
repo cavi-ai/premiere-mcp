@@ -119,6 +119,8 @@ class TimelineClip(BaseModel):
     end: float
     in_point: float
     out_point: float
+    speed: float = 100
+    reversed: bool = False
     media_path: str | None
 
 
@@ -315,6 +317,7 @@ class EffectSet(Result):
 class Fit(Result):
     clip: str
     source: dict[str, int]
+    pixel_aspect: float | None = None
     sequence_size: dict[str, int]
     scale: float
 

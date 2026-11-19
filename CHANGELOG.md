@@ -43,6 +43,12 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_clip_place` reports a clip placed off the frame grid on the frame where it landed instead of failing after placing it.
 - `premiere_cut`, `premiere_export` and `premiere_encode` with `replace` keep the old files when the ProRes preset, `ffprobe` or Media Encoder is missing.
 - `premiere_export` and `premiere_encode` count a master whose container keeps no frame count by its packets, and a master without video by its audio duration; a master that cannot be counted is reported `OUTCOME_UNKNOWN`.
+- `premiere_clip_props`, `premiere_fade` and `premiere_effect_set` keyframes land at their timeline offset on a retimed clip; keyframes on a reversed clip are refused.
+- `premiere_inspect`, `premiere_clip_place`, `premiere_clip_edit` and `premiere_clip_slip` report a retimed clip's `in_point` and `out_point` in source seconds, and clips report `speed` and `reversed`.
+- `premiere_clip_copy` and a `premiere_clip_edit` `to_track` move keep a retimed clip's source range, speed and direction.
+- `premiere_clip_slip` `offset` and `in_point` are source seconds on a retimed clip.
+- `premiere_scene_detect` maps cuts through the clip's speed and direction and decodes only its source range.
+- `premiere_clip_fit` counts the source and sequence pixel aspect ratios and reports `pixel_aspect`.
 
 ## 0.1.1 - 2026-11-16
 

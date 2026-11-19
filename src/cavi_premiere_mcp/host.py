@@ -637,9 +637,11 @@ def clips_place(sequence, clips, timeout):
                                  "clips": [{**clip, "item": item_ref(clip["item"])} for clip in clips]}, timeout)
 
 
-def clip_place(sequence, item, kind, track, at, in_point, out_point, mode, timeout):
+def clip_place(sequence, item, kind, track, at, in_point, out_point, mode, timeout, speed=None, reversed_=False):
+    """One placement; speed (percent) and reversed_ retime it to play in_point to out_point of the source."""
     result = clips_place(sequence, [{"item": item, "at": at, "kind": kind, "track": track, "in_point": in_point,
-                                     "out_point": out_point, "mode": mode}], timeout)
+                                     "out_point": out_point, "mode": mode, "speed": speed,
+                                     "reversed": reversed_}], timeout)
     result["clip"] = result.pop("clips")[0]
     return result
 
@@ -824,9 +826,10 @@ def items(item, change, timeout):
     return result
 
 
-def scene_times(media, threshold, timeout=3600):
-    """Source times of hard cuts in a movie, from ffmpeg's scene score."""
-    result = run_sync([ffmpeg_tool("ffmpeg"), "-hide_banner", "-i", str(media), "-an", "-vf",
+def scene_times(media, threshold, timeout=3600, start=None, end=None):
+    """Source times of hard cuts in a movie, from ffmpeg's scene score; only start to end when given."""
+    window = ([] if start is None else ["-ss", str(start), "-copyts"], [] if end is None else ["-to", str(end)])
+    result = run_sync([ffmpeg_tool("ffmpeg"), "-hide_banner", *window[0], "-i", str(media), *window[1], "-an", "-vf",
                        f"select='gt(scene,{threshold})',showinfo", "-f", "null", "-"], timeout)
     if result.returncode:
         raise RuntimeError(f"ffmpeg could not read {media}: " + diagnostics(result))
@@ -861,9 +864,10 @@ def scene_detect(sequence, track, at, position_index, threshold, apply, include_
         raise ValueError("include_audio needs apply=cuts")
     with exclusive(timeout):
         clip = video_clip(inspect(sequence, timeout)["sequences"], sequence, track, at, position_index)
-        times = [clip["start"] + t - clip["in_point"] for t in scene_times(clip["media_path"], threshold, timeout)
-                 if clip["in_point"] < t < clip["out_point"]]
-        times = [round(t, 3) for t in times]
+        first, last, ratio = clip["in_point"], clip["out_point"], clip["speed"] / 100
+        # Source times map through the speed, from the out point when the clip plays backwards.
+        times = sorted(round(clip["start"] + ((last - t) if clip["reversed"] else (t - first)) / ratio, 3)
+                       for t in scene_times(clip["media_path"], threshold, timeout, first, last) if first < t < last)
         result = {"clip": clip["name"], "cuts": times, "applied": apply}
         if times and apply == "cuts":
             host_razor = razor(sequence, times, "all" if include_audio else "video",

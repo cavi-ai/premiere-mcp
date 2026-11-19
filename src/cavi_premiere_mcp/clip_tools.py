@@ -95,7 +95,7 @@ def copy(sequence, kind, track, at, position_index, to_time, to_track, timeout):
             raise ValueError(f"{clip['name']} has no media to copy")
         return host.clip_place(sequence, clip.get("item_id") or clip["media_path"], kind,
                                track if to_track is None else to_track, to_time, clip["in_point"], clip["out_point"],
-                               "overwrite", timeout)
+                               "overwrite", timeout, clip["speed"], clip["reversed"])
 
 
 def slip(sequence, kind, track, at, position_index, offset, in_point, with_linked, timeout):

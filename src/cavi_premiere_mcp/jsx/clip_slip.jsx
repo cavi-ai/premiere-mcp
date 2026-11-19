@@ -8,9 +8,11 @@ function slipTime(seconds) {
     return t;
 }
 
+// begin is a source time; a retimed clip's DOM in and out points are source time divided by its speed.
 function slipOne(clip, begin) {
-    var length = secs(clip.outPoint) - secs(clip.inPoint), was = {begin: secs(clip.inPoint), stop: secs(clip.outPoint)},
-        start = secs(clip.start), end = secs(clip.end), limit = null;
+    var ratio = speedOf(clip), length = sourceOut(clip) - sourceIn(clip),
+        was = {begin: secs(clip.inPoint), stop: secs(clip.outPoint)}, start = secs(clip.start), end = secs(clip.end),
+        limit = null;
     try {
         limit = clip.projectItem.getOutPoint(clip.mediaType === "Audio" ? 2 : 1).seconds;
     } catch (error) {
@@ -21,14 +23,14 @@ function slipOne(clip, begin) {
              + (limit !== null ? " (" + limit + " s)" : ""));
     }
     try {
-        clip.inPoint = slipTime(begin);
-        clip.outPoint = slipTime(begin + length);
+        clip.inPoint = slipTime(begin / ratio);
+        clip.outPoint = slipTime((begin + length) / ratio);
     } catch (failure) {
         clip.inPoint = slipTime(was.begin);
         clip.outPoint = slipTime(was.stop);
         fail("Premiere refused the slip of " + clip.name + ": " + String(failure.message || failure));
     }
-    if (Math.abs(secs(clip.inPoint) - begin) > 0.0005 || Math.abs(secs(clip.start) - start) > 0.0005
+    if (Math.abs(secs(clip.inPoint) - begin / ratio) > 0.0005 || Math.abs(secs(clip.start) - start) > 0.0005
             || Math.abs(secs(clip.end) - end) > 0.0005) {
         clip.inPoint = slipTime(was.begin);
         clip.outPoint = slipTime(was.stop);
@@ -38,11 +40,11 @@ function slipOne(clip, begin) {
 
 function run(A, report) {
     var sequence = findSequence(A.sequence), clip = findClip(sequence, A.kind, A.track, A.at, A.position_index),
-        shift = A.in_point !== null && A.in_point !== undefined ? A.in_point - secs(clip.inPoint) : A.offset,
+        shift = A.in_point !== null && A.in_point !== undefined ? A.in_point - sourceIn(clip) : A.offset,
         partners = [], i;
     report.sequence = sequence.name;
     report.clip = clip.name;
-    report.before = {in_point: secs(clip.inPoint), out_point: secs(clip.outPoint)};
+    report.before = {in_point: sourceIn(clip), out_point: sourceOut(clip)};
     if (A.with_linked !== false) {
         try {
             each(clip.getLinkedItems(), function (member) {
@@ -54,11 +56,11 @@ function run(A, report) {
             partners = [];
         }
     }
-    slipOne(clip, secs(clip.inPoint) + shift);
+    slipOne(clip, sourceIn(clip) + shift);
     for (i = 0; i < partners.length; i++) {
-        slipOne(partners[i], secs(partners[i].inPoint) + shift);
+        slipOne(partners[i], sourceIn(partners[i]) + shift);
     }
-    report.after = {in_point: secs(clip.inPoint), out_point: secs(clip.outPoint)};
+    report.after = {in_point: sourceIn(clip), out_point: sourceOut(clip)};
     report.start = secs(clip.start);
     report.end = secs(clip.end);
     report.linked = partners.length;

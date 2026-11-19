@@ -635,6 +635,141 @@ class SaveAsTest(unittest.TestCase):
         self.assertEqual(self.edits.read_text(), "")
 
 
+# One clip from source IN to OUT at SPEED: as in Premiere, its inPoint and outPoint read as source times divided
+# by the speed. A 480 x 270 source with 2:1 pixels on a 640 x 360 square-pixel sequence.
+RETIMED = """
+function log(line) { require("fs").appendFileSync(EDITS, line + "\\n"); }
+function Time() { this.ticks = "0"; }
+Object.defineProperty(Time.prototype, "seconds", {get: function () { return Number(this.ticks) / 254016000000; }});
+function at(seconds) { return {seconds: seconds}; }
+function param(name) {
+    var value = 0;
+    return {displayName: name, setValue: function (v) { value = v; log("set " + name + " " + JSON.stringify(v)); },
+        getValue: function () { return value; }, setTimeVarying: function () {},
+        addKey: function (t) { log("key " + name + " " + t); }, setValueAtKey: function () {},
+        getValueAtTime: function () { return value; }};
+}
+var ProjectItemType = {BIN: 1, ROOT: 2, CLIP: 3};
+var item = {name: "m.mov", type: 3, nodeId: "m", range: [0, 6], getMediaPath: function () { return MEDIA; },
+    getProjectMetadata: function () {
+        return "<Column.Intrinsic.VideoInfo>480 x 270 (2.0)</Column.Intrinsic.VideoInfo>";
+    },
+    getInPoint: function () { return at(this.range[0]); }, getOutPoint: function () { return at(this.range[1]); },
+    setInPoint: function (t) { this.range[0] = t; log("item in " + t); },
+    setOutPoint: function (t) { this.range[1] = t; log("item out " + t); }};
+function placed(start, from, to, speed) {
+    return {name: "m.mov", nodeId: "c" + start, mediaType: "Video", projectItem: item, disabled: false,
+        speed: speed, start: at(start), end: at(start + (to - from) / speed), inPoint: at(from / speed),
+        outPoint: at(to / speed), getSpeed: function () { return this.speed; },
+        isSpeedReversed: function () { return REVERSED; }, getLinkedItems: function () { return null; },
+        components: {numItems: 2, 0: {displayName: "Opacity", properties: {numItems: 1, 0: param("Opacity")}},
+            1: {displayName: "Motion", properties: {numItems: 2, 0: param("Scale"), 1: param("Position")}}}};
+}
+var items = [placed(0, IN, OUT, SPEED)];
+var lane = {name: "V1", transitions: {numItems: 0}, isLocked: function () { return false; },
+    overwriteClip: function (source, start) {
+        log("place " + start);
+        items.push(placed(start, source.range[0], source.range[1], 1));
+    }};
+Object.defineProperty(lane, "clips", {get: function () {
+    var list = {numItems: items.length}, i;
+    for (i = 0; i < items.length; i++) { list[i] = items[i]; }
+    return list;
+}});
+var sequence = {name: "S", sequenceID: "s1", projectItem: {nodeId: "p1"}, timebase: "10160640000", end: "0",
+    frameSizeHorizontal: 640, frameSizeVertical: 360, markers: {getFirstMarker: function () { return null; }},
+    getSettings: function () { return {videoPixelAspectRatio: "1:1", videoDisplayFormat: 100}; },
+    videoTracks: {numTracks: 1, 0: lane}, audioTracks: {numTracks: 0}};
+var app = {project: {path: "/p.prproj", rootItem: {type: 2, children: {numItems: 1, 0: item}},
+    sequences: {numSequences: 1, 0: sequence}, activeSequence: sequence, openSequence: function () {}},
+    enableQE: function () {}};
+var qe = {project: {getActiveSequence: function () {
+    return {getVideoTrackAt: function () {
+        return {numItems: items.length, getItemAt: function (i) {
+            var dom = items[i];
+            return {type: "Clip", speed: dom.speed, setSpeed: function (ratio, code, reverse, pitch, ripple) {
+                var from = dom.inPoint.seconds * dom.speed, length = dom.end.seconds - dom.start.seconds;
+                log("setSpeed " + ratio + " " + code + " " + reverse + " " + ripple);
+                dom.speed = ratio;
+                dom.inPoint = at(from / ratio);
+                dom.outPoint = at((from + length * ratio) / ratio);
+                return true;
+            }};
+        }};
+    }};
+}}};
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class RetimedClipTest(unittest.TestCase):
+    """A clip at 200% plays two source seconds per timeline second; keys, cuts, copies and slips follow that."""
+
+    def stub(self, source_in=2, source_out=6, speed=2, reversed_=False, media="/m.mov"):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.edits = Path(folder.name) / "edits.txt"
+        self.edits.write_text("")
+        stub = (f"var EDITS = {json.dumps(str(self.edits))}, MEDIA = {json.dumps(media)}, IN = {source_in}, "
+                f"OUT = {source_out}, SPEED = {speed}, REVERSED = {json.dumps(reversed_)};" + RETIMED)
+        patch = mock.patch.object(host, "relay", node_relay(stub))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def lines(self, prefix):
+        return [line for line in self.edits.read_text().splitlines() if line.startswith(prefix)]
+
+    def test_keyframes_land_at_the_source_time_of_their_timeline_offset(self):
+        self.stub()
+        host.clip_props("s1", "video", 0, None, 0, {}, [{"time": 0, "opacity": 0}, {"time": 1, "opacity": 100}], 60)
+        self.assertEqual(self.lines("key"), ["key Opacity 2", "key Opacity 4"])
+
+    def test_keyframes_on_a_reversed_clip_are_refused(self):
+        self.stub(reversed_=True)
+        with self.assertRaisesRegex(RuntimeError, "reversed"):
+            host.clip_props("s1", "video", 0, None, 0, {}, [{"time": 0, "opacity": 0}], 60)
+        self.assertEqual(self.lines("key"), [])
+
+    def test_inspect_reports_the_source_range_and_the_speed(self):
+        self.stub()
+        clip = host.inspect("s1", 60, items=False)["sequences"][0]["video"][0]["clips"][0]
+        self.assertEqual((clip["in_point"], clip["out_point"], clip["speed"], clip["reversed"]), (2, 6, 200, False))
+
+    def test_a_copy_keeps_the_source_range_and_the_speed(self):
+        self.stub()
+        clip = clip_tools.copy("s1", "video", 0, None, 0, 10.0, None, 60)["clip"]
+        self.assertEqual(self.lines("item")[:2], ["item in 2", "item out 4"])
+        self.assertEqual(self.lines("place"), ["place 10"])
+        self.assertEqual(self.lines("setSpeed"), ["setSpeed 2 00:00:02:00 false false"])
+        self.assertEqual((clip["start"], clip["end"], clip["in_point"], clip["out_point"], clip["speed"]),
+                         (10, 12, 2, 6, 200))
+
+    def test_a_slip_moves_the_source_by_source_seconds(self):
+        self.stub(source_in=1, source_out=3)
+        done = clip_tools.slip("s1", "video", 0, None, 0, 1.0, None, False, 60)
+        self.assertEqual((done["before"], done["after"]),
+                         ({"in_point": 1, "out_point": 3}, {"in_point": 2, "out_point": 4}))
+
+    def test_a_fit_counts_the_source_pixel_aspect(self):
+        self.stub()
+        done = host.clip_fit("s1", 0, None, 0, "fit", 60)
+        self.assertEqual((done["scale"], done["pixel_aspect"]), (66.67, 2))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is required")
+    def test_scene_cuts_follow_the_speed_and_direction(self):
+        with tempfile.TemporaryDirectory() as folder:
+            movie = Path(folder) / "six.mov"
+            colors = [f"color=c={c}:s=160x90:r=25:d=1" for c in ("red", "blue", "green") * 2]
+            subprocess.run(["ffmpeg", "-loglevel", "error", *sum((["-f", "lavfi", "-i", c] for c in colors), []),
+                            "-filter_complex", "".join(f"[{i}]" for i in range(6)) + "concat=n=6:v=1:a=0",
+                            str(movie)], check=True)
+            # Cuts at source 1, 2, 4 and 5 s; the clip plays 1.5 to 5.5 s.
+            for reversed_, cuts in ((False, [0.25, 1.25, 1.75]), (True, [0.25, 0.75, 1.75])):
+                with self.subTest(reversed=reversed_):
+                    self.stub(source_in=1.5, source_out=5.5, reversed_=reversed_, media=str(movie))
+                    self.assertEqual(host.scene_detect("s1", 0, None, 0, 0.3, "report", False, 60)["cuts"], cuts)
+
+
 class MailboxTest(unittest.TestCase):
     def test_the_mailbox_is_private_to_its_user(self):
         with tempfile.TemporaryDirectory() as folder:
