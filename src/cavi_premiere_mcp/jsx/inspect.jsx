@@ -69,7 +69,7 @@ function laneInfo(lane, index) {
 function markerList(sequence) {
     var list = [], marker = sequence.markers.getFirstMarker();
     while (marker) {
-        list.push({name: marker.name, comment: marker.comments, start: secs(marker.start), end: secs(marker.end)});
+        list.push(markerInfo(marker));
         marker = sequence.markers.getNextMarker(marker);
     }
     return list;

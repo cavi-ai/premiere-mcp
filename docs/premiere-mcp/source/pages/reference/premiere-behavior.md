@@ -85,10 +85,13 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
     returns true and the effects stay. QE `getComponentAt(n).remove()` removes that one effect from a video
     or an audio clip. `remove(false, false)` on an item of `Track.transitions` removes the transition and
     leaves the clips.
-24. QE `getClipPanComponent()` on an audio clip returns the `Panner` component with a `Pan` parameter. A QE
-    audio track's `getComponentAt(0)` is its `Track` component with `Volume` and `Mute`; the DOM audio track
-    has no volume. QE `setParamValue` takes the value as a string (`"30"`, `"0.5"`, `"true"`) and refuses a
-    number with `Illegal Parameter type`; Pan `"30"` reads back `30.00` and Volume `"0.5"` reads back `0.50`.
+24. QE `getClipPanComponent()` on an audio clip returns the `Panner` component, whose one parameter is `Pan`
+    on a mono clip and `Balance` on a stereo clip. A QE audio track has two components: `Track` with
+    `Volume` and `Mute`, and an unnamed one with no parameters; the DOM audio track has no volume. QE
+    `setParamValue` takes the value as a string (`"30"`, `"0.5"`, `"true"`) and refuses a number with
+    `Illegal Parameter type`; Pan `"30"` reads back `30.00` and Volume `"0.5"` reads back `0.50`. Track
+    `Volume` is linear gain: exports of a track at 1, 2 and 0.5 measured 0, +6 and -6 dB against the source,
+    and 0 is silent.
 25. Media Encoder answers BridgeTalk as target `ame`. `app.getEncoderHost()` has `getBatchEncoderStatus`
     (`stopped`, `running`), `isBatchRunning`, `runBatch`, `pauseBatch` and `stopBatch`. `stopBatch()`
     returned true and stopped an 11-minute 23.976 fps encode; the partial movie stayed on disk and no process

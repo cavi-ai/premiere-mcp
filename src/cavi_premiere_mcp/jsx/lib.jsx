@@ -99,6 +99,29 @@ function mediaPath(item) {
     }
 }
 
+var MARKER_TYPES = {comment: "setTypeAsComment", chapter: "setTypeAsChapter", segmentation: "setTypeAsSegmentation"};
+
+// Colour (index 0 to 7) and type of a marker; a weblink needs its url.
+function styleMarker(marker, spec) {
+    if (given(spec.color)) {
+        marker.setColorByIndex(spec.color);
+    }
+    if (spec.type === "weblink") {
+        marker.setTypeAsWebLink(spec.url, "");
+    } else if (spec.type) {
+        marker[MARKER_TYPES[spec.type]]();
+    }
+}
+
+function markerInfo(marker) {
+    var info = {name: marker.name, comment: marker.comments, start: secs(marker.start), end: secs(marker.end),
+        color: marker.getColorByIndex(), type: String(marker.type).toLowerCase()};
+    if (info.type === "weblink") {
+        info.url = marker.getWebLinkURL();
+    }
+    return info;
+}
+
 function clipInfo(clip, position) {
     var item = clip.projectItem || null;
     return {position: position, name: clip.name, item_id: item ? item.nodeId : null, start: secs(clip.start),

@@ -122,18 +122,20 @@ Returns `project`, `master`, `fps`, `frames`, `cut_frames`, `transitions`, `warn
 
 Opens, creates, saves or closes a `.prproj`. `new` refuses an existing path unless `replace`.
 `close` saves only when `save`. `close_others` closes every other open project unsaved after `open`
-or `new`; `open` in the result is the number of open projects. `save` saves the active project in place and
-takes no other argument.
+or `new`; `open` in the result is the number of open projects. `save` saves the active project in place;
+with `path` it saves the project as that file, which Premiere then keeps open in place of the old one
+(`saved_from`). The old file keeps its last save. Save as refuses the active project's own path, another
+open project's path, and an existing file unless `replace`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
 | `action` | `open`, `new`, `save`, `close` | required | What to do. |
-| `path` | string | none | Required by `open` and `new`. |
-| `replace` | boolean | `false` | Let `new` replace an existing file. |
+| `path` | string | none | Required by `open` and `new`; with `save`, the file to save as. |
+| `replace` | boolean | `false` | Let `new` or `save` replace an existing file. |
 | `save` | boolean | `false` | Save before `close`. |
 | `close_others` | boolean | `false` | Close all other projects without saving. |
 
-Returns `project`, `name`, `open`, `sequences`, `closed`, `warnings`.
+Returns `project`, `name`, `open`, `sequences`, `closed`, `saved_from`, `warnings`.
 
 ### `premiere_inspect`
 
@@ -291,14 +293,15 @@ Returns `sequence`, `nested`, `duplicate`, `deleted`, `sequences`, `warnings`.
 
 ### `premiere_tracks`
 
-Adds video and stereo audio tracks after the last one and sets mute, lock and target state per
-track. At least one of them is required.
+Adds video and stereo audio tracks after the last one and sets mute, lock and target state and audio
+track volume per track. At least one of them is required. Each audio track in the result has `volume`, the
+track Volume as Premiere shows it: linear gain to two decimals, where 1.00 is 0 dB.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
 | `add_video` | integer | `0` | Video tracks to add, 0 to 20. |
 | `add_audio` | integer | `0` | Audio tracks to add, 0 to 20. |
-| `tracks` | list of object | none | Each has `kind`, `track` and any of `muted`, `locked`, `targeted`. |
+| `tracks` | list of object | none | Each has `kind`, `track` and any of `muted`, `locked`, `targeted`, `volume_db` (audio tracks, -96 to 6). |
 | `sequence` | string | none | The sequence. |
 
 Returns `sequence`, `before`, `after`, `tracks`, `warnings`.
@@ -423,8 +426,8 @@ Returns `clip`, `source`, `sequence_size`, `scale`, `warnings`.
 
 ### `premiere_clip_props`
 
-Sets Motion position, scale and rotation, Opacity and audio Volume on a clip.
-`keyframes` animate the properties they set and win over the static value.
+Sets Motion position, scale and rotation, Opacity, audio Volume and audio Pan on a clip.
+`keyframes` animate the properties they set, except `pan`, and win over the static value.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -437,6 +440,7 @@ Sets Motion position, scale and rotation, Opacity and audio Volume on a clip.
 | `rotation` | number | none | Degrees. |
 | `opacity` | number | none | Percent, 0 to 100. |
 | `volume_db` | number | none | dB, -96 to 15; 0 is unity. |
+| `pan` | number | none | Audio clips only: -100 left to 100 right. |
 | `keyframes` | list of object | none | Each has `time` (seconds from the clip's start) and any of `position`, `scale`, `rotation`, `opacity` (0 to 100), `volume_db` (-96 to 15). |
 | `sequence` | string | none | The sequence. |
 
@@ -501,8 +505,9 @@ Returns `clip`, `components_before`, `components`, `warnings`.
 
 ### `premiere_effect_set`
 
-Sets parameters of a clip's component by display name (Motion, Opacity, Lumetri Color, Crop, ...), or
-lists them. Either `params` or `list` is required.
+Sets parameters of a clip's component by display name (Motion, Opacity, Lumetri Color, Crop, ...),
+lists them, or with `remove` deletes an added effect from the clip. Exactly one of `params`, `list` and
+`remove` is required; `remove` needs `component` and is checked by the clip's component count.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -510,34 +515,36 @@ lists them. Either `params` or `list` is required.
 | `params` | list of object | none | Each has `name`, one of `value`, `color` (`#RRGGBB`) or `keyframes`, and `index` (which of several parameters share the name). A keyframe has `time` (seconds from the clip's start), `value` or `color`, and `interpolation` (`linear`, `hold`, `bezier`). |
 | `list` | boolean | `false` | Return the parameters with their values. |
 | `component_index` | integer | `0` | Which of several components share the name. |
+| `remove` | boolean | `false` | Remove the component from the clip. |
 | `kind` | `video`, `audio` | `"video"` | Track kind. |
 | `track` | integer | `0` | Track index. |
 | `at` | number | none | Address by time. |
 | `position_index` | integer | none | Address by place on the track. |
 | `sequence` | string | none | The sequence. |
 
-Returns `clip`, `applied`, `components`, `warnings`.
+Returns `clip`, `applied`, `components`, `removed`, `warnings`.
 
 ### `premiere_transition_add`
 
-Adds a QE transition at the start or end of a clip. `alignment` 0 starts the transition at the cut,
-0.5 centers it, 1 ends it there. A transition needs source handles on both sides to reach its full
-length.
+Adds a QE transition at the start or end of a clip, or with `remove` deletes the transition at that
+edge. `alignment` 0 starts the transition at the cut, 0.5 centers it, 1 ends it there. A transition needs
+source handles on both sides to reach its full length. `remove` takes only the clip and `edge`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `transition` | string | `"Cross Dissolve"` | A name `premiere_transitions` lists or an alias. |
-| `frames` | integer | `12` | Length in frames, 1 to 600. |
+| `transition` | string | none | A name `premiere_transitions` lists or an alias; Cross Dissolve when omitted. |
+| `frames` | integer | none | Length in frames, 1 to 600; 12 when omitted. |
 | `kind` | `video`, `audio` | `"video"` | Track kind. |
 | `track` | integer | `0` | Track index. |
 | `at` | number | none | Address by time. |
 | `position_index` | integer | none | Address by place on the track. |
 | `edge` | `start`, `end` | `"start"` | Which edge of the clip. |
-| `alignment` | number | `0.5` | 0 to 1. |
+| `alignment` | number | none | 0 to 1; 0.5 when omitted. |
 | `single_sided` | boolean | `false` | One-sided transition. |
+| `remove` | boolean | `false` | Remove the transition at `edge` instead. |
 | `sequence` | string | none | The sequence. |
 
-Returns `clip`, `transition`, `warnings`.
+Returns `clip`, `transition`, `removed`, `warnings`.
 
 ### `premiere_razor`
 
@@ -606,7 +613,7 @@ beat of each bar `downbeat`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `markers` | list of object | none | Each has `time`, `name` (default empty), `comment` (default empty) and `duration` (default 0); at most 5000. |
+| `markers` | list of object | none | Each has `time`, `name` (default empty), `comment` (default empty), `duration` (default 0), `color` (0 to 7), `type` (`comment`, `chapter`, `segmentation`, `weblink`) and `url` (with `weblink` only); at most 5000. |
 | `beat_grid` | object | none | `bpm`, `beats_per_bar` (default 4), `start` (default 0) and `end`. |
 | `sequence` | string | none | The sequence. |
 
@@ -614,7 +621,8 @@ Returns `sequence`, `added`, `total`, `warnings`.
 
 ### `premiere_markers_edit`
 
-Lists sequence markers, or updates or deletes one by time-order index or start time, or all of them.
+Lists sequence markers with their `color`, `type` and, for web links, `url`, or updates or deletes one
+by time-order index or start time, or all of them. A moved marker keeps its color and type.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -626,6 +634,9 @@ Lists sequence markers, or updates or deletes one by time-order index or start t
 | `comment` | string | none | New comment for `update`. |
 | `move_to` | number | none | New start time for `update`. |
 | `duration` | number | none | New duration for `update`. |
+| `color` | integer | none | New color index for `update`, 0 to 7. |
+| `type` | `comment`, `chapter`, `segmentation`, `weblink` | none | New type for `update`; `weblink` needs `url`. |
+| `url` | string | none | Link of a `weblink` marker. |
 | `sequence` | string | none | The sequence. |
 
 Returns `sequence`, `total`, `markers`, `updated`, `deleted`, `warnings`.

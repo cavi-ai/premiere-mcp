@@ -538,7 +538,7 @@ class TimelineRefusalTest(unittest.TestCase):
             (lambda: timeline.markers_edit(None, "delete", None, None, False, None, None, None, None, 60),
              "exactly one of index, at or all"),
             (lambda: timeline.markers_edit(None, "update", 0, None, False, None, None, None, None, 60),
-             "Give name, comment, move_to or duration"),
+             "Give name, comment, move_to, duration, color or type"),
             (lambda: timeline.markers_edit(None, "update", None, None, True, "x", None, 2.0, None, 60),
              "move_to needs one marker"),
             (lambda: timeline.bins("create", None, None, None, None, False, 60), "new bin's name"),

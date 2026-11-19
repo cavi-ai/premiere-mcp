@@ -342,7 +342,8 @@ class ContractTest(unittest.TestCase):
 
     def test_an_argument_the_call_does_not_use_is_refused(self):
         for name, arguments, text in [
-            ("premiere_project", {"action": "save", "path": "/x.prproj"}, "Not valid for action=save: path"),
+            ("premiere_project", {"action": "save", "close_others": True}, "Not valid for action=save: close_others"),
+            ("premiere_project", {"action": "save", "replace": True}, "replace needs path"),
             ("premiere_project", {"action": "close", "close_others": True}, "Not valid for action=close: close_others"),
             ("premiere_project", {"action": "open", "path": "/x.prproj", "replace": True},
              "Not valid for action=open: replace"),
@@ -359,6 +360,16 @@ class ContractTest(unittest.TestCase):
             ("premiere_scene_detect", {"position_index": 0, "include_audio": True}, "include_audio needs apply=cuts"),
             ("premiere_effect_set", {"position_index": 0, "component": "Opacity", "list": True,
                                      "params": [{"name": "Opacity", "value": 50}]}, "list=true, not both"),
+            ("premiere_effect_set", {"position_index": 0, "component": "Gaussian Blur", "remove": True, "list": True},
+             "remove takes no params or list"),
+            ("premiere_transition_add", {"position_index": 0, "remove": True, "frames": 8},
+             "Not valid for action=remove: frames"),
+            ("premiere_markers_edit", {"action": "update", "index": 0, "url": "https://x.test"},
+             "type weblink needs url"),
+            ("premiere_markers_edit", {"action": "update", "index": 0, "type": "weblink"}, "type weblink needs url"),
+            ("premiere_clip_props", {"position_index": 0, "pan": 20}, "pan is for audio clips"),
+            ("premiere_tracks", {"tracks": [{"kind": "video", "track": 0, "volume_db": -6}]},
+             "volume_db is for audio tracks"),
         ]:
             with self.subTest(name=name, arguments=arguments):
                 error, message = refusal(name, arguments)
@@ -491,6 +502,137 @@ class RippleTest(unittest.TestCase):
         done, edits = self.remove_b([["X", 0, 3], ["Y", 6, 8]])
         self.assertEqual(done["removed"]["name"], "B")
         self.assertEqual(edits, ["remove B", "move C -2", "move Y -2"])
+
+
+MARKERS = """
+function log(line) { require("fs").appendFileSync(EDITS, line + "\\n"); }
+function Marker(time) {
+    var end = {seconds: time};
+    this.name = ""; this.comments = ""; this.start = {seconds: time}; this.type = "Comment"; this.color = 0;
+    this.link = "";
+    Object.defineProperty(this, "end", {get: function () { return end; },
+        set: function (value) { end = {seconds: Number(value)}; }});
+}
+Marker.prototype.setColorByIndex = function (i) { this.color = i; log("color " + i); };
+Marker.prototype.getColorByIndex = function () { return this.color; };
+Marker.prototype.setTypeAsComment = function () { this.type = "Comment"; log("type Comment"); };
+Marker.prototype.setTypeAsChapter = function () { this.type = "Chapter"; log("type Chapter"); };
+Marker.prototype.setTypeAsSegmentation = function () { this.type = "Segmentation"; log("type Segmentation"); };
+Marker.prototype.setTypeAsWebLink = function (url) { this.type = "WebLink"; this.link = url; log("type WebLink " + url); };
+Marker.prototype.getWebLinkURL = function () { return this.link; };
+var list = SEED.map(function (s) {
+    var m = new Marker(s.t);
+    m.color = s.color || 0; m.type = s.type || "Comment"; m.link = s.link || "";
+    return m;
+});
+var markers = {
+    createMarker: function (time) {
+        var m = new Marker(time);
+        list.push(m);
+        list.sort(function (a, b) { return a.start.seconds - b.start.seconds; });
+        return m;
+    },
+    deleteMarker: function (m) { list.splice(list.indexOf(m), 1); },
+    getFirstMarker: function () { return list[0] || null; },
+    getNextMarker: function (m) { return list[list.indexOf(m) + 1] || null; }};
+Object.defineProperty(markers, "numMarkers", {get: function () { return list.length; }});
+var main = {name: "Main", sequenceID: "s1", projectItem: {nodeId: "p1"}, timebase: "10160640000", end: "0",
+    markers: markers, videoTracks: {numTracks: 0}, audioTracks: {numTracks: 0}};
+var app = {project: {path: "/p.prproj", rootItem: {type: 2, children: {numItems: 0}},
+    sequences: {numSequences: 1, 0: main}, activeSequence: main, openSequence: function () {}}};
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class MarkerStyleTest(unittest.TestCase):
+    """Markers take a color and a type, list them, and keep them when moved."""
+
+    def run_markers(self, seed, call):
+        with tempfile.TemporaryDirectory() as folder:
+            edits = Path(folder) / "edits.txt"
+            edits.write_text("")
+            stub = f"var EDITS = {json.dumps(str(edits))}, SEED = {json.dumps(seed)};" + MARKERS
+            with mock.patch.object(host, "relay", node_relay(stub)):
+                return call(), edits.read_text().splitlines()
+
+    def test_added_markers_take_their_color_and_type(self):
+        _, edits = self.run_markers([], lambda: host.markers_add("s1", [
+            {"time": 1, "color": 3, "type": "chapter"}, {"time": 2, "type": "weblink", "url": "https://x.test"}],
+            None, 60))
+        self.assertEqual(edits, ["color 3", "type Chapter", "type WebLink https://x.test"])
+
+    def test_listed_markers_show_color_type_and_link(self):
+        reply, _ = self.run_markers([{"t": 1, "color": 5, "type": "Chapter"},
+                                     {"t": 2, "type": "WebLink", "link": "https://x.test"}],
+                                    lambda: asyncio.run(mcp.call_tool("premiere_markers_edit",
+                                                                      {"action": "list", "sequence": "s1"})))
+        rows = [(m["color"], m["type"], m.get("url")) for m in reply.structured_content["markers"]]
+        self.assertEqual(rows, [(5, "chapter", None), (0, "weblink", "https://x.test")])
+
+    def test_a_moved_marker_keeps_its_color_and_type(self):
+        reply, _ = self.run_markers([{"t": 1, "color": 5, "type": "Chapter"}],
+                                    lambda: asyncio.run(mcp.call_tool("premiere_markers_edit", {
+                                        "action": "update", "index": 0, "move_to": 4, "sequence": "s1"})))
+        moved = reply.structured_content["updated"][0]
+        self.assertEqual((moved["start"], moved["color"], moved["type"]), (4, 5, "chapter"))
+
+
+SAVE_AS = """
+function File(path) {
+    this.fsName = path; this.name = path.split("/").pop(); this.exists = require("fs").existsSync(path); this.text = "";
+}
+File.prototype.remove = function () { require("fs").unlinkSync(this.fsName); return true; };
+function project(path) {
+    return {path: path, name: path.split("/").pop(), sequences: {numSequences: 0},
+        saveAs: function (to) {
+            require("fs").appendFileSync(EDITS, "saveAs " + to + "\\n");
+            app.project = app.projects[0] = project(to);
+            return true;
+        }};
+}
+var app = {projects: {numProjects: 1}};
+app.project = app.projects[0] = project(OLD);
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class SaveAsTest(unittest.TestCase):
+    """save with a path saves the active project as that file, which then stays open in its place."""
+
+    def save_as(self, target, replace=False):
+        old = self.folder / "old.prproj"
+        old.write_text("old")
+        stub = f"var EDITS = {json.dumps(str(self.edits))}, OLD = {json.dumps(str(old))};" + SAVE_AS
+        with mock.patch.object(host, "relay", node_relay(stub)):
+            return host.project("save", str(target), replace, False, False, 60)
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = Path(folder.name)
+        self.edits = self.folder / "edits.txt"
+        self.edits.write_text("")
+
+    def test_save_as_a_new_file_keeps_that_file_open(self):
+        target = self.folder / "new" / "copy.prproj"
+        done = self.save_as(target)
+        self.assertEqual((done["project"], done["saved_from"]), (str(target), str(self.folder / "old.prproj")))
+        self.assertEqual(self.edits.read_text().splitlines(), [f"saveAs {target}"])
+
+    def test_an_existing_file_is_kept_unless_replace(self):
+        target = self.folder / "taken.prproj"
+        target.write_text("keep")
+        with self.assertRaisesRegex(ValueError, "Already exists"):
+            self.save_as(target)
+        self.assertEqual(target.read_text(), "keep")
+        done = self.save_as(target, replace=True)
+        self.assertEqual(done["project"], str(target))
+        self.assertFalse(target.exists())
+
+    def test_saving_as_the_active_project_path_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, "save without path"):
+            self.save_as(self.folder / "old.prproj", replace=True)
+        self.assertEqual(self.edits.read_text(), "")
 
 
 class MailboxTest(unittest.TestCase):

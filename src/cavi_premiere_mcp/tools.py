@@ -113,13 +113,15 @@ async def premiere_cut(
 @mcp.tool(annotations=DESTRUCTIVE)
 async def premiere_project(
         action: Annotated[Literal["open", "new", "save", "close"], Field(description="What to do with the project.")],
-        path: Annotated[str | None, Field(description="Absolute .prproj path; required for open and new.")] = None,
-        replace: Annotated[bool, Field(description="Let new overwrite an existing project file.")] = False,
+        path: Annotated[str | None, Field(description="Absolute .prproj path; required for open and new. With "
+                                                      "save, save the project as this file.")] = None,
+        replace: Annotated[bool, Field(description="Let new or save overwrite an existing project file.")] = False,
         save: Annotated[bool, Field(description="Save the project before close.")] = False,
         close_others: Annotated[bool, Field(description="After open or new, close every other open project "
                                                         "without saving.")] = False,
         timeout: Timeout = 300) -> Project:
-    """Open, create, save or close a .prproj. The result's open is the number of open projects."""
+    """Open, create, save or close a .prproj. save with path saves as that file, which Premiere then keeps
+    open in place of the old one. The result's open is the number of open projects."""
     return await asyncio.to_thread(host.project, action, path, replace, save, close_others, timeout)
 
 
@@ -213,13 +215,15 @@ async def premiere_clip_props(
                            Field(description="Opacity in percent, 0 to 100.")] = None,
         volume_db: Annotated[Annotated[float, Field(ge=-96, le=15)] | None,
                              Field(description="Audio volume in dB, -96 to 15.")] = None,
+        pan: Annotated[Annotated[float, Field(ge=-100, le=100)] | None,
+                       Field(description="Audio clip pan, -100 left to 100 right; kind audio only.")] = None,
         keyframes: Annotated[list[Keyframe] | None, Field(description="Keyframes, timed in seconds from the "
                                                                       "clip's start.")] = None,
         sequence: SequenceName = None, timeout: Timeout = 300) -> Props:
-    """Set Motion, Opacity and audio Volume on a clip. keyframes animate the properties they set and win
-    over the static value."""
+    """Set Motion, Opacity, audio Volume and audio Pan on a clip. keyframes animate the properties they set
+    (not pan) and win over the static value."""
     props = {"position": position and list(position), "scale": scale, "rotation": rotation, "opacity": opacity,
-             "volume_db": volume_db}
+             "volume_db": volume_db, "pan": pan}
     frames = [{k: (list(v) if isinstance(v, tuple) else v) for k, v in key.model_dump().items() if v is not None}
               for key in keyframes or []]
     return await asyncio.to_thread(host.clip_props, sequence, kind, track, at, position_index, props, frames,
@@ -307,11 +311,11 @@ async def premiere_tracks(
         add_video: Annotated[int, Field(ge=0, le=20, description="Video tracks to add after the last one.")] = 0,
         add_audio: Annotated[int, Field(ge=0, le=20, description="Stereo audio tracks to add after the last "
                                                                  "one.")] = 0,
-        tracks: Annotated[list[TrackSet] | None, Field(description="Mute, lock and target state per "
+        tracks: Annotated[list[TrackSet] | None, Field(description="Mute, lock, target and audio volume per "
                                                                    "track.")] = None,
         sequence: SequenceName = None, timeout: Timeout = 300) -> Tracks:
-    """Add tracks and set mute, lock and target per track; returns the counts before and after and every
-    track's state."""
+    """Add tracks and set mute, lock, target and audio track volume per track; returns the counts before and
+    after and every track's state."""
     states = [t.model_dump() for t in tracks or []]
     return await asyncio.to_thread(host.tracks, sequence, add_video, add_audio, states, timeout)
 
@@ -354,14 +358,16 @@ async def premiere_effect_set(
                                                 "setting.")] = False,
         component_index: Annotated[int, Field(ge=0, description="Which of several components with the same "
                                                                 "name, 0-based.")] = 0,
+        remove: Annotated[bool, Field(description="Remove the component from the clip; give no params or "
+                                                  "list.")] = False,
         kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
         sequence: SequenceName = None, timeout: Timeout = 300) -> EffectSet:
-    """Set or list parameters of a clip's component by display name. A param is a value, a #RRGGBB color or
-    keyframes (seconds from the clip's start; linear, hold or bezier); its index picks among parameters
-    that share a name. list without component lists every component."""
+    """Set or list parameters of a clip's component by display name, or remove an added effect. A param is
+    a value, a #RRGGBB color or keyframes (seconds from the clip's start; linear, hold or bezier); its index
+    picks among parameters that share a name. list without component lists every component."""
     specs = [p.model_dump(exclude_none=True) for p in params or []]
     return await asyncio.to_thread(host.effect_set, sequence, kind, track, at, position_index, component,
-                                   component_index, list, specs, timeout)
+                                   component_index, list, specs, timeout, remove)
 
 
 @mcp.tool(annotations=WRITES)
@@ -417,20 +423,24 @@ async def premiere_scene_detect(
 
 @mcp.tool(annotations=WRITES)
 async def premiere_transition_add(
-        transition: Annotated[str, Field(description="Transition name premiere_transitions lists, or an "
-                                                     "alias.")] = "Cross Dissolve",
-        frames: Annotated[int, Field(ge=1, le=600, description="Transition length in frames.")] = 12,
+        transition: Annotated[str | None, Field(description="Transition name premiere_transitions lists, or an "
+                                                            "alias; Cross Dissolve when omitted.")] = None,
+        frames: Annotated[Annotated[int, Field(ge=1, le=600)] | None,
+                          Field(description="Transition length in frames; 12 when omitted.")] = None,
         kind: ClipKind = "video", track: ClipTrack = 0, at: ClipAt = None, position_index: ClipIndex = None,
         edge: Annotated[Literal["start", "end"], Field(description="Which end of the clip.")] = "start",
-        alignment: Annotated[float, Field(ge=0, le=1, description="0 starts at the cut, 0.5 centers on it, 1 "
-                                                                  "ends at it.")] = 0.5,
+        alignment: Annotated[Annotated[float, Field(ge=0, le=1)] | None,
+                             Field(description="0 starts at the cut, 0.5 centers on it, 1 ends at it; 0.5 when "
+                                               "omitted.")] = None,
         single_sided: Annotated[bool, Field(description="Apply to this clip only, not across the "
                                                         "cut.")] = False,
+        remove: Annotated[bool, Field(description="Remove the transition at that edge instead; give only the "
+                                                  "clip and edge.")] = False,
         sequence: SequenceName = None, timeout: Timeout = 300) -> Added:
-    """Add a QE transition at the start or end of a clip. Aliases: cross_dissolve, film_dissolve,
-    dip_to_black, dip_to_white."""
+    """Add a QE transition at the start or end of a clip, or remove the one there. Aliases: cross_dissolve,
+    film_dissolve, dip_to_black, dip_to_white."""
     return await asyncio.to_thread(host.transition_add, sequence, kind, track, at, position_index, transition,
-                                   frames, edge, alignment, single_sided, timeout)
+                                   frames, edge, alignment, single_sided, timeout, remove)
 
 
 @mcp.tool(annotations=WRITES)
