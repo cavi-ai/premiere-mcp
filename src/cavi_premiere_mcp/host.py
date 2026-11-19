@@ -6,13 +6,16 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import time
 import uuid
+from contextlib import contextmanager
 from fractions import Fraction
 from pathlib import Path
 
 from cavi_mcp_core import apps
 from cavi_mcp_core.contracts import OperationRejected, OperationUnknown
+from cavi_mcp_core.lock import FileLock
 from cavi_mcp_core.proc import diagnostics, run_sync
 from cavi_mcp_core.server import need, reject_foreign
 
@@ -52,6 +55,33 @@ class NotReady(OperationRejected):
 
     def __init__(self, message, code="RELAY_NOT_APPROVED"):
         super().__init__(message, code)
+
+
+# One call at a time drives Premiere, across every server process of this user.
+ACCESS = FileLock(Path(tempfile.gettempdir()) / "cavi-premiere.lock")
+_call = threading.local()
+
+
+@contextmanager
+def exclusive(timeout):
+    """Premiere for this call alone until it ends; yields the call's deadline. A call inside another keeps the
+    outer deadline, and waiting for another call counts against the timeout."""
+    outer = getattr(_call, "deadline", None)
+    deadline = time.monotonic() + timeout if outer is None else min(outer, time.monotonic() + timeout)
+    while not ACCESS.acquire(blocking=False):
+        if time.monotonic() > deadline:
+            raise OperationRejected(f"Premiere Pro was busy with another call for {timeout} s", "PREMIERE_BUSY")
+        time.sleep(0.1)
+    _call.deadline = deadline
+    try:
+        yield deadline
+    finally:
+        _call.deadline = outer
+        ACCESS.release()
+
+
+def left(deadline, least=0.0):
+    return max(deadline - time.monotonic(), least)
 
 
 def application(spec):
@@ -163,7 +193,10 @@ def mailbox_send(target, body, timeout, wait=None, box=None):
     """Hand a job to the Bridge relay and wait for its reply: (ok, result). wait is how long to wait
     for the relay to pick the job up before raising the approval message."""
     box = box or MAILBOX
-    box.mkdir(parents=True, exist_ok=True)
+    box.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # Bridge creates the folder with the default mode; jobs are scripts Premiere runs.
+    if box.stat().st_mode & 0o777 != 0o700:
+        box.chmod(0o700)
     sweep(box)
     name = uuid.uuid4().hex
     job, reply = box / f"{name}.job", box / f"{name}.reply"
@@ -195,31 +228,36 @@ def bridge_age(app):
 
 
 def relay(body, timeout, target="premierepro"):
-    """Send ExtendScript to an Adobe app through Bridge BridgeTalk once the app answers messages."""
-    app = bridge()
-    launched = not running(app)
-    start(app)
-    start(premiere())
-    # A Premiere that is still starting refuses messages with "TARGET COULD NOT BE LAUNCHED".
-    deadline = time.monotonic() + READY_TIMEOUT
-    wait = BRIDGE_PING + (BRIDGE_LAUNCH if launched else 0)
-    while True:
-        try:
-            answer = send("'ready'", 15, target, wait)
-        except NotReady:
-            # A Bridge that started moments ago has not run its startup scripts yet; that is not a missing approval.
-            if bridge_age(app) >= BRIDGE_STARTUP:
-                raise
-            answer = "Adobe Bridge is still starting"
-        except TimeoutError as failure:  # Premiere is busy or frozen; no job has been sent yet
-            answer = str(failure)
-        if answer == "ready":
-            break
-        wait = None
-        if time.monotonic() > deadline:
-            raise NotReady(f"Premiere Pro did not answer within {READY_TIMEOUT} s: {answer}", "PREMIERE_NOT_READY")
-        time.sleep(5)
-    return send_file(body, timeout, target)
+    """Send ExtendScript to an Adobe app through Bridge BridgeTalk once the app answers messages. The call ends
+    by its timeout, the wait for Premiere and for other calls included."""
+    with exclusive(timeout) as deadline:
+        app = bridge()
+        launched = not running(app)
+        start(app)
+        start(premiere())
+        # A Premiere that is still starting refuses messages with "TARGET COULD NOT BE LAUNCHED".
+        began = time.monotonic()
+        ready_by = min(deadline, began + READY_TIMEOUT)
+        wait = BRIDGE_PING + (BRIDGE_LAUNCH if launched else 0)
+        while True:
+            try:
+                answer = send("'ready'", min(15, left(ready_by, 1)), target, wait)
+            except NotReady:
+                # A Bridge that started moments ago has not run its startup scripts yet; that is not a missing
+                # approval.
+                if bridge_age(app) >= BRIDGE_STARTUP:
+                    raise
+                answer = "Adobe Bridge is still starting"
+            except TimeoutError as failure:  # Premiere is busy or frozen; no job has been sent yet
+                answer = str(failure)
+            if answer == "ready":
+                break
+            wait = None
+            if time.monotonic() >= ready_by:
+                raise NotReady(f"Premiere Pro did not answer within {round(time.monotonic() - began)} s: {answer}",
+                               "PREMIERE_NOT_READY")
+            time.sleep(min(5, left(ready_by)))
+        return send_file(body, left(deadline, 1), target)
 
 
 def send_file(body, timeout, target="premierepro"):
@@ -234,7 +272,7 @@ def send_file(body, timeout, target="premierepro"):
 
 def send(body, timeout, target="premierepro", wait=None):
     """The target's last value, or FAILED followed by the message; the relay answers through the mailbox."""
-    ok, result = mailbox_send(target, body, timeout + 30, wait)
+    ok, result = mailbox_send(target, body, timeout, wait)
     return result if ok else FAILED + result
 
 
@@ -302,19 +340,19 @@ def finish(body, report, master, timeout):
     The relay can answer "timed out" while Premiere keeps exporting, so its answer only starts the wait:
     the job is done when its report exists and no process holds the master open.
     """
+    deadline = time.monotonic() + timeout
     before = fingerprint(report)
     try:
-        answer = relay(body, timeout)
+        answer = relay(body, left(deadline, 1))
     except TimeoutError as failure:  # the job's answer never came; the export may still run
         answer = f"{type(failure).__name__}: {failure}"
-    deadline = time.monotonic() + timeout
     while True:
         result = written(report, before)
         if result and (result["errors"] or (master.is_file() and not held(master))):
             break
         if time.monotonic() > deadline:
             break
-        time.sleep(2)
+        time.sleep(min(2, left(deadline, 0.05)))
     if not result or result["errors"] or not master.is_file() or held(master):
         raise RuntimeError(f"Premiere Pro job failed: {answer}; {result}")
     return result
@@ -793,26 +831,28 @@ def scene_detect(sequence, track, at, position_index, threshold, apply, include_
     one_clip(at, position_index)
     if include_audio and apply != "cuts":
         raise ValueError("include_audio needs apply=cuts")
-    clip = video_clip(inspect(sequence, timeout)["sequences"], sequence, track, at, position_index)
-    times = [clip["start"] + t - clip["in_point"] for t in scene_times(clip["media_path"], threshold, timeout)
-             if clip["in_point"] < t < clip["out_point"]]
-    times = [round(t, 3) for t in times]
-    result = {"clip": clip["name"], "cuts": times, "applied": apply}
-    if times and apply == "cuts":
-        host_razor = razor(sequence, times, "all" if include_audio else "video", None if include_audio else track,
-                           timeout)
-        result["clips_after"] = host_razor["clips_after"]
-    elif times and apply == "markers":
-        result["markers"] = markers_add(sequence, [{"time": t, "name": "cut", "comment": "", "duration": 0}
-                                                    for t in times], None, timeout)["total"]
-    return result
+    with exclusive(timeout):
+        clip = video_clip(inspect(sequence, timeout)["sequences"], sequence, track, at, position_index)
+        times = [clip["start"] + t - clip["in_point"] for t in scene_times(clip["media_path"], threshold, timeout)
+                 if clip["in_point"] < t < clip["out_point"]]
+        times = [round(t, 3) for t in times]
+        result = {"clip": clip["name"], "cuts": times, "applied": apply}
+        if times and apply == "cuts":
+            host_razor = razor(sequence, times, "all" if include_audio else "video",
+                               None if include_audio else track, timeout)
+            result["clips_after"] = host_razor["clips_after"]
+        elif times and apply == "markers":
+            result["markers"] = markers_add(sequence, [{"time": t, "name": "cut", "comment": "", "duration": 0}
+                                                        for t in times], None, timeout)["total"]
+        return result
 
 
 def media_replace(item, path, timeout):
     """Relink a project item to a new file, then confirm through inspect that the project points at it."""
     target = existing(path)
-    changed = invoke("media_replace", {"item": item_ref(item), "path": str(target)}, timeout)
-    listed = inspect(None, timeout)
+    with exclusive(timeout):
+        changed = invoke("media_replace", {"item": item_ref(item), "path": str(target)}, timeout)
+        listed = inspect(None, timeout)
     seen = [clip for lane in (lane for s in listed["sequences"] for lane in s["video"] + s["audio"])
             for clip in lane["clips"] if clip["media_path"] and Path(clip["media_path"]) == target]
     entry = [i for i in listed["items"] if i["media_path"] and Path(i["media_path"]) == target]

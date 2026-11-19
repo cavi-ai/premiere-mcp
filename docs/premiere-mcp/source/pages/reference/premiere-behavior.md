@@ -119,7 +119,8 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
   takes an encoded value, and a plain string replaces the text with a broken render. `video_track` must be
   an existing track. The text is confirmed by reading the parameter back.
 - `premiere_clip_edit` `remove` takes the clip's linked clips with it unless `keep_linked`. `ripple` removes
-  the clip and moves the later clips of the same track left; other tracks stay as they are. `trim_start` and
+  the clip and moves the later clips of every unlocked track left by its length; when a clip that stays on a
+  track would be overlapped by the moved ones, the remove is refused before anything changes. `trim_start` and
   `trim_end` are timeline times and the source in and out follow them; a trim cannot reach past the source.
   `move_to` shifts only the addressed clip, never its audio or video partner. A move to another track places
   the clip again with its source range and its other stream, so it loses its effects and its name. `unlink`
