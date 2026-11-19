@@ -122,7 +122,8 @@ Returns `project`, `master`, `fps`, `frames`, `cut_frames`, `transitions`, `warn
 
 Opens, creates, saves or closes a `.prproj`. `new` refuses an existing path unless `replace`.
 `close` saves only when `save`. `close_others` closes every other open project unsaved after `open`
-or `new`; `open` in the result is the number of open projects.
+or `new`; `open` in the result is the number of open projects. `save` saves the active project in place and
+takes no other argument.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -725,15 +726,16 @@ Returns `sequence`, `master`, `fps`, `frames`, `expected_frames`, `complete`, `w
 ### `premiere_interchange`
 
 Exports a sequence as FCP XML (`xml`), AAF or OMF to an absolute path, or imports an FCP XML
-(`import_xml`) into the project. The file or the new sequence is checked.
+(`import_xml`) into the project. The file or the new sequence is checked. An argument the action does not
+use is refused: `audio_rate` and `bits` are for AAF and OMF, and `import_xml` takes only `path`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
 | `action` | `xml`, `aaf`, `omf`, `import_xml` | required | What to do. |
 | `path` | string | required | Absolute path of the file. |
 | `replace` | boolean | `false` | Replace an existing file. |
-| `audio_rate` | integer | `48000` | Audio rate for AAF and OMF, 8000 to 192000. |
-| `bits` | `16`, `24` | `16` | Audio bit depth for AAF and OMF. |
+| `audio_rate` | integer | none | Audio rate for AAF and OMF, 8000 to 192000; 48000 when omitted. |
+| `bits` | `16`, `24` | none | Audio bit depth for AAF and OMF; 16 when omitted. |
 | `sequence` | string | none | The sequence to export. |
 
 Returns `action`, `path`, `size`, `sequence`, `imported`, `warnings`.

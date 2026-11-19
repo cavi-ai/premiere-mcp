@@ -3,15 +3,21 @@
 import asyncio
 from typing import Annotated, Literal
 
-from cavi_mcp_core.server import DESTRUCTIVE
+from cavi_mcp_core.server import DESTRUCTIVE, reject_foreign
 from pydantic import BaseModel, Field
 
 from . import host
 from .app import Seconds, SequenceName, Timeout, mcp
 from .models import Result
 
+MARKERS_EDIT_USES = {"list": set(), "update": {"index", "at", "all", "name", "comment", "move_to", "duration"},
+                     "delete": {"index", "at", "all"}}
+BINS_USES = {"create": {"parent"}, "rename": {"new_name"}, "move": {"items"}, "delete": {"force"}}
+
 
 def markers_edit(sequence, action, index, at, all_, name, comment, move_to, duration, timeout):
+    reject_foreign(action, {"index": index, "at": at, "all": all_ or None, "name": name, "comment": comment,
+                            "move_to": move_to, "duration": duration}, MARKERS_EDIT_USES[action])
     if action != "list":
         if sum([index is not None, at is not None, bool(all_)]) != 1:
             raise ValueError("Give exactly one of index, at or all")
@@ -36,6 +42,8 @@ def range_remove(sequence, start, end, mode, timeout):
 
 
 def bins(action, name, parent, new_name, items, force, timeout):
+    reject_foreign(action, {"parent": parent, "new_name": new_name, "items": items or None, "force": force or None},
+                   BINS_USES[action])
     if action == "create" and not name:
         raise ValueError("Give the new bin's name")
     if action in ("rename", "move", "delete") and not name:

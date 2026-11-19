@@ -47,7 +47,7 @@ class RefusalTest(unittest.TestCase):
         self.assertEqual(project.read_text(), "kept")
 
     def test_open_needs_an_existing_project(self):
-        with self.assertRaisesRegex(ValueError, "No file at"):
+        with self.assertRaisesRegex(FileNotFoundError, "No file at"):
             host.project("open", self.root / "missing.prproj", False, False, False, 60)
 
     def test_export_keeps_an_existing_master(self):
@@ -63,7 +63,7 @@ class RefusalTest(unittest.TestCase):
             host.export(None, self.root / "m.mov", self.root / "p.xml", "entire", False, 60)
 
     def test_replacement_media_must_exist(self):
-        with self.assertRaisesRegex(ValueError, "No file at"):
+        with self.assertRaisesRegex(FileNotFoundError, "No file at"):
             host.media_replace("a.mov", self.root / "gone.mov", 60)
 
     def test_sequence_needs_one_source_of_settings(self):
@@ -122,7 +122,7 @@ class RefusalTest(unittest.TestCase):
                 host.interchange(None, "aaf", target, False, 48000, 16, 60)
             self.assertEqual(target.read_text(), "kept")
             with self.assertRaisesRegex(ValueError, "Expected a .xml file"):
-                host.interchange(None, "import_xml", target, False, 48000, 16, 60)
+                host.interchange(None, "import_xml", target, False, None, None, 60)
             with self.assertRaisesRegex(ValueError, "Expected a .omf file"):
                 host.interchange(None, "omf", Path(folder) / "a.aaf", True, 48000, 16, 60)
 
@@ -198,7 +198,7 @@ class RefusalTest(unittest.TestCase):
             host.items("a.mov", {"remove": True, "label": 3}, 60)
         with self.assertRaisesRegex(ValueError, "out_point must be after in_point"):
             host.items("a.mov", {"subclip": {"name": "s", "in_point": 2, "out_point": 1}}, 60)
-        with self.assertRaisesRegex(ValueError, "No file at"):
+        with self.assertRaisesRegex(FileNotFoundError, "No file at"):
             host.items("a.mov", {"proxy": {"path": "/no/such/proxy.mov"}}, 60)
 
     def test_scene_detect_needs_one_clip_address(self):

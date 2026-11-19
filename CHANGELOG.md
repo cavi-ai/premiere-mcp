@@ -14,6 +14,10 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 ### Changed
 
 - A sequence name or an item reference that several sequences or items answer to is refused with their ids instead of taking the first.
+- An argument the call does not use is refused: `premiere_project`, `premiere_interchange`, `premiere_markers_edit` and `premiere_bins` per action, `keep_linked` without `remove`, `include_audio` without `apply=cuts`, and `params` with `list=true`.
+- `premiere_interchange` `audio_rate` and `bits` default to none; AAF and OMF use 48000 Hz and 16 bits when they are omitted.
+- A missing input file is `INPUT_NOT_FOUND`; a relay Bridge never ran is `RELAY_NOT_APPROVED` and a Premiere Pro that never answered is `PREMIERE_NOT_READY`, both `rejected`.
+- Results leave out optional fields the tool did not set. Requires cavi-mcp-core 0.1.7.
 
 ### Fixed
 

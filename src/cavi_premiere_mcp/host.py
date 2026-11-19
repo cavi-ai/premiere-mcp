@@ -12,9 +12,9 @@ from fractions import Fraction
 from pathlib import Path
 
 from cavi_mcp_core import apps
-from cavi_mcp_core.contracts import OperationUnknown
+from cavi_mcp_core.contracts import OperationRejected, OperationUnknown
 from cavi_mcp_core.proc import diagnostics, run_sync
-from cavi_mcp_core.server import need
+from cavi_mcp_core.server import need, reject_foreign
 
 JSX = Path(__file__).with_name("jsx")
 READY_TIMEOUT = 300
@@ -47,8 +47,11 @@ MEDIA_ENCODER = ("Adobe Media Encoder", "com.adobe.ame.application.26",
                  "Adobe Media Encoder 20*/Adobe Media Encoder 20*.app", "CAVI_MEDIA_ENCODER_APP")
 
 
-class NotReady(RuntimeError):
-    """Premiere Pro never answered the relay."""
+class NotReady(OperationRejected):
+    """Premiere Pro never answered the relay, so no job was sent."""
+
+    def __init__(self, message, code="RELAY_NOT_APPROVED"):
+        super().__init__(message, code)
 
 
 def application(spec):
@@ -214,7 +217,7 @@ def relay(body, timeout, target="premierepro"):
             break
         wait = None
         if time.monotonic() > deadline:
-            raise NotReady(f"Premiere Pro did not answer within {READY_TIMEOUT} s: {answer}")
+            raise NotReady(f"Premiere Pro did not answer within {READY_TIMEOUT} s: {answer}", "PREMIERE_NOT_READY")
         time.sleep(5)
     return send_file(body, timeout, target)
 
@@ -371,7 +374,7 @@ def plan(clips, fps):
     for number, clip in enumerate(clips, 1):
         file = absolute(clip["file"])
         if not file.is_file():
-            raise ValueError(f"Clip {number}: no file at {file}")
+            raise FileNotFoundError(f"Clip {number}: no file at {file}")
         if names.setdefault(file.name, file) != file:
             raise ValueError(f"Clip {number}: another clip file is also named {file.name}")
         # Half a frame rounds up, as Math.round does in the scripts.
@@ -394,7 +397,7 @@ def cut(project, master, clips, audio, replace, timeout):
     project, master = absolute(project, ".prproj"), absolute(master, ".mov")
     audio = absolute(audio) if audio else None
     if audio and not audio.is_file():
-        raise ValueError(f"No audio file at {audio}")
+        raise FileNotFoundError(f"No audio file at {audio}")
     report = project.with_suffix(".report.json")
     present = [path for path in (project, master, report) if path.exists()]
     if present and not replace:
@@ -436,7 +439,7 @@ def invoke(tool, args, timeout=300):
 def existing(path, suffix=None):
     path = absolute(path, suffix)
     if not path.is_file():
-        raise ValueError(f"No file at {path}")
+        raise FileNotFoundError(f"No file at {path}")
     return path
 
 
@@ -445,8 +448,14 @@ def item_ref(ref):
     return str(absolute(ref)) if ref.startswith(("/", "~")) else ref
 
 
+PROJECT_USES = {"open": {"path", "close_others"}, "new": {"path", "replace", "close_others"}, "save": set(),
+                "close": {"save"}}
+
+
 def project(action, path, replace, save, close_others, timeout):
     """Open, create, save or close a Premiere project."""
+    reject_foreign(action, {"path": path, "replace": replace or None, "save": save or None,
+                            "close_others": close_others or None}, PROJECT_USES[action])
     args = {"action": action, "path": None, "save": save, "close_others": close_others}
     if action == "open":
         args["path"] = str(existing(need(path, "path", action), ".prproj"))
@@ -629,6 +638,8 @@ def one_clip(at, position_index, name=None):
 def clip_edit(sequence, kind, track, at, position_index, name, edit, timeout):
     """Trim, move, enable, rename, link, unlink or remove one placed clip."""
     one_clip(at, position_index, name)
+    if edit.get("keep_linked") and not edit.get("remove"):
+        raise ValueError("keep_linked needs remove")
     if edit.get("remove") and any(v is not None and k not in ("remove", "keep_linked") for k, v in edit.items()):
         raise ValueError("remove cannot be combined with other edits")
     if all(v is None for v in edit.values()):
@@ -710,8 +721,8 @@ def effect_add(sequence, kind, track, at, position_index, effect, timeout):
 def effect_set(sequence, kind, track, at, position_index, component, component_index, list_, params, timeout):
     """Set or list the parameters of a clip's component, by display names."""
     one_clip(at, position_index)
-    if not list_ and not params:
-        raise ValueError("Give params to set or list=true")
+    if bool(list_) == bool(params):
+        raise ValueError("Give params to set or list=true, not both")
     if params and not component:
         raise ValueError("Give the component the parameters belong to")
     for spec in params:
@@ -780,6 +791,8 @@ def video_clip(listed, sequence, track, at, position_index):
 def scene_detect(sequence, track, at, position_index, threshold, apply, include_audio, timeout):
     """Cut times inside a placed clip, as timeline seconds; optionally razor or mark them."""
     one_clip(at, position_index)
+    if include_audio and apply != "cuts":
+        raise ValueError("include_audio needs apply=cuts")
     clip = video_clip(inspect(sequence, timeout)["sequences"], sequence, track, at, position_index)
     times = [clip["start"] + t - clip["in_point"] for t in scene_times(clip["media_path"], threshold, timeout)
              if clip["in_point"] < t < clip["out_point"]]
@@ -922,8 +935,16 @@ def auto_reframe(sequence, ratio, motion, name, nest, timeout):
     return invoke("auto_reframe", args, timeout)
 
 
+INTERCHANGE_USES = {"xml": {"sequence", "replace"}, "aaf": {"sequence", "replace", "audio_rate", "bits"},
+                    "omf": {"sequence", "replace", "audio_rate", "bits"}, "import_xml": set()}
+
+
 def interchange(sequence, action, path, replace, audio_rate, bits, timeout):
-    """Export a sequence as FCP XML, AAF or OMF, or import an FCP XML; the file or the new sequence is checked."""
+    """Export a sequence as FCP XML, AAF or OMF, or import an FCP XML; the file or the new sequence is checked.
+    AAF and OMF audio is 48000 Hz and 16 bits unless audio_rate and bits are given."""
+    reject_foreign(action, {"sequence": sequence, "replace": replace or None, "audio_rate": audio_rate,
+                            "bits": bits}, INTERCHANGE_USES[action])
+    audio_rate, bits = audio_rate or 48000, bits or 16
     suffix = {"xml": ".xml", "aaf": ".aaf", "omf": ".omf", "import_xml": ".xml"}[action]
     if action == "import_xml":
         target = existing(path, suffix)
