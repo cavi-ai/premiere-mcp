@@ -46,8 +46,11 @@ from .models import (
     NestSpec,
     NewMarker,
     NewSequence,
+    Opened,
     Param,
     Placed,
+    PlacedClips,
+    Placement,
     Presets,
     Project,
     Props,
@@ -123,12 +126,16 @@ async def premiere_project(
 
 @mcp.tool(annotations=READ_ONLY)
 async def premiere_inspect(
-        sequence: Annotated[str | None, Field(description="Report only this sequence; every sequence when "
-                                                          "omitted.")] = None,
+        sequence: Annotated[str | None, Field(description="Report only the sequence with this id, or every one "
+                                                          "with this name; every sequence when omitted.")] = None,
+        items: Annotated[bool, Field(description="List the project items; false leaves items empty and skips "
+                                                 "reading each item's metadata.")] = True,
+        tracks: Annotated[bool, Field(description="List each sequence's tracks and markers; false leaves them "
+                                                  "empty.")] = True,
         timeout: Timeout = 300) -> Inspect:
-    """Bins, project items (media path, offline, duration, fps, size), sequences with each track's clips,
-    transitions and markers, all in seconds."""
-    return await asyncio.to_thread(host.inspect, sequence, timeout)
+    """Bins, project items (id, media path, offline, duration, fps, size), sequences (id, active) with each
+    track's clips, transitions and markers, all in seconds."""
+    return await asyncio.to_thread(host.inspect, sequence, timeout, False, items, tracks)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -156,7 +163,7 @@ async def premiere_import(
 @mcp.tool(annotations=WRITES)
 async def premiere_sequence_new(
         name: Annotated[str, Field(description="Name of the new sequence.")],
-        clip: Annotated[str | None, Field(description="Project item (media path or name) whose settings the "
+        clip: Annotated[str | None, Field(description="Project item (media path, name or id) whose settings the "
                                                       "sequence takes.")] = None,
         preset: Annotated[str | None, Field(description="Sequence preset: absolute .sqpreset path or a name "
                                                         "premiere_presets lists.")] = None,
@@ -167,8 +174,16 @@ async def premiere_sequence_new(
 
 
 @mcp.tool(annotations=WRITES)
+async def premiere_sequence_open(
+        sequence: Annotated[str, Field(description="Sequence name or id; a shared name is refused.")],
+        timeout: Timeout = 300) -> Opened:
+    """Make a sequence the active one, which the other tools act on when no sequence is given."""
+    return await asyncio.to_thread(host.sequence_open, sequence, timeout)
+
+
+@mcp.tool(annotations=WRITES)
 async def premiere_clip_place(
-        item: Annotated[str, Field(description="Project item to place: media path or name.")],
+        item: Annotated[str, Field(description="Project item to place: media path, name or id.")],
         at: Annotated[Seconds, Field(description="Sequence time where the clip starts, in seconds.")],
         kind: Annotated[Kind, Field(description="Track type to place on.")] = "video",
         track: Annotated[Track, Field(description="0-based track index; 0 is V1 or A1.")] = 0,
@@ -181,6 +196,16 @@ async def premiere_clip_place(
     """Place a project item on a track at a time; a file not yet imported is imported first."""
     return await asyncio.to_thread(host.clip_place, sequence, item, kind, track, at, in_point, out_point, mode,
                                    timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_clips_place(
+        clips: Annotated[list[Placement], Field(min_length=1, max_length=host.MAX_PLACEMENTS,
+                                                description="Clips to place, in this order.")],
+        sequence: SequenceName = None, timeout: Timeout = 600) -> PlacedClips:
+    """Place many project items on one sequence in one Premiere job. Every track and item is found, and
+    files not yet imported are imported, before the first clip is placed."""
+    return await asyncio.to_thread(host.clips_place, sequence, [c.model_dump() for c in clips], timeout)
 
 
 @mcp.tool(annotations=WRITES)
@@ -356,7 +381,8 @@ async def premiere_clip_fit(
 
 @mcp.tool(annotations=DESTRUCTIVE)
 async def premiere_items(
-        item: Annotated[str, Field(description="Project item (media path or name), or a bin by name.")],
+        item: Annotated[str, Field(description="Project item (media path, name or id), or a bin by name or "
+                                               "id.")],
         rename: Annotated[str | None, Field(description="New item name.")] = None,
         bin: Annotated[str | None, Field(description="Bin to move the item to, created when missing.")] = None,
         label: Annotated[Annotated[int, Field(ge=0, le=15)] | None,
@@ -413,7 +439,7 @@ async def premiere_transition_add(
 
 @mcp.tool(annotations=WRITES)
 async def premiere_media_replace(
-        item: Annotated[str, Field(description="Project item to repoint: media path or name.")],
+        item: Annotated[str, Field(description="Project item to repoint: media path, name or id.")],
         path: Annotated[str, Field(description="Absolute path of the new media; the same path refreshes it.")],
         timeout: Timeout = 300) -> Replaced:
     """Point a project item at a new file, or refresh it, so sequences show the new media; the result is

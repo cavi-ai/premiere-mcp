@@ -16,7 +16,7 @@ JSX = Path(host.__file__).with_name("jsx")
 TOOLS = ["project", "inspect", "import", "sequence_new", "clip_place", "clip_props", "transition_add",
          "media_replace", "markers_add", "mogrt_add", "export", "transitions", "clip_edit", "razor", "clip_speed",
          "sequence_set", "tracks", "frame_export", "encode", "auto_reframe", "interchange", "captions", "effects", "effect_add", "effect_set",
-         "clip_fit", "items", "cut", "markers_edit", "gaps", "range_remove", "bins", "clip_slip"]
+         "clip_fit", "items", "cut", "markers_edit", "gaps", "range_remove", "bins", "clip_slip", "sequence_open"]
 
 
 class BeatGridTest(unittest.TestCase):
@@ -265,17 +265,17 @@ var app = {project: {rootItem: {type: 2, children: {numItems: 1, 0: item}}, acti
 @unittest.skipUnless(shutil.which("node"), "node is required")
 class PlacedClipTest(unittest.TestCase):
     def test_a_placed_clip_report_is_a_valid_tool_result(self):
-        from cavi_premiere_mcp.models import Placed
+        from cavi_premiere_mcp.models import PlacedClips
 
         script = "\n".join((PREMIERE_STUB, (JSX / "lib.jsx").read_text(), (JSX / "clip_place.jsx").read_text(), """
 var report = {warnings: [], errors: []};
-run({sequence: null, item: "/m/a.mp4", kind: "video", track: 0, at: 1, in_point: null, out_point: null,
-    mode: "overwrite"}, report);
+run({sequence: null, clips: [{item: "/m/a.mp4", kind: "video", track: 0, at: 1, in_point: null, out_point: null,
+    mode: "overwrite"}]}, report);
 process.stdout.write(stringify(report));"""))
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
-        placed = Placed.model_validate(json.loads(result.stdout))
-        self.assertEqual((placed.clip.name, placed.clip.start, placed.clip.media_path), ("a.mp4", 1, "/m/a.mp4"))
+        clip = PlacedClips.model_validate(json.loads(result.stdout)).clips[0]
+        self.assertEqual((clip.name, clip.start, clip.media_path), ("a.mp4", 1, "/m/a.mp4"))
 
 
 NTSC = {"23.976": (24000, 1001), "25": (25, 1), "29.97": (30000, 1001), "59.94": (60000, 1001)}

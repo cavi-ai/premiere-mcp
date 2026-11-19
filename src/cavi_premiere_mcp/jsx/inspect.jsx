@@ -1,6 +1,7 @@
 // Describe the open project: bins, project items, sequences with every track's clips and
-// transitions, and sequence markers. Input: {sequence, active}: the named sequence; with no name, every
-// sequence, or only the active one when active is true.
+// transitions, and sequence markers. Input: {sequence, active, items, tracks}: the sequence with that id or
+// every one with that name; with neither, every sequence, or only the active one when active is true. items
+// false leaves out the project items, tracks false each sequence's tracks and markers.
 // Seconds of a media timecode at a media rate such as 29.97: its frames are counted at the whole timecode
 // base (30) and last 1001/30000 s each; a ";" timecode at 29.97 or 59.94 is drop frame.
 function seconds(code, rate) {
@@ -16,8 +17,8 @@ function seconds(code, rate) {
 }
 
 function itemInfo(child, binPath, sequenceIds) {
-    var info = {name: child.name, bin: binPath, kind: isBin(child) ? "bin" : "clip", media_path: null,
-        offline: null, duration: null, clip_duration: null, label: null, fps: null, width: null, height: null},
+    var info = {name: child.name, id: child.nodeId, bin: binPath, kind: isBin(child) ? "bin" : "clip",
+        media_path: null, offline: null, duration: null, clip_duration: null, label: null, fps: null, width: null, height: null},
         xml = "", size, rate;
     if (info.kind === "bin") {
         return info;
@@ -79,10 +80,14 @@ function markerList(sequence) {
     return list;
 }
 
-function sequenceInfo(sequence) {
-    var info = {name: sequence.name, id: sequence.sequenceID, fps: TICKS / Number(sequence.timebase),
-        width: sequence.frameSizeHorizontal, height: sequence.frameSizeVertical, end: endSeconds(sequence),
-        video: [], audio: [], markers: markerList(sequence)};
+function sequenceInfo(sequence, active, tracks) {
+    var info = {name: sequence.name, id: sequence.sequenceID,
+        active: !!active && active.sequenceID === sequence.sequenceID, fps: TICKS / Number(sequence.timebase), width: sequence.frameSizeHorizontal,
+        height: sequence.frameSizeVertical, end: endSeconds(sequence), video: [], audio: [], markers: []};
+    if (!tracks) {
+        return info;
+    }
+    info.markers = markerList(sequence);
     each(sequence.videoTracks, function (lane, i) {
         info.video.push(laneInfo(lane, i));
     });
@@ -93,7 +98,7 @@ function sequenceInfo(sequence) {
 }
 
 function run(A, report) {
-    var ids = {}, bins = [], items = [], active;
+    var ids = {}, bins = [], items = [], active, chosen = [], i;
     if (!app.project) {
         fail("No project is open");
     }
@@ -103,25 +108,33 @@ function run(A, report) {
     });
     (function visit(bin, path) {
         each(bin.children, function (child) {
-            var info = itemInfo(child, path, ids);
-            if (info.kind === "bin") {
+            var info = A.items === false ? null : itemInfo(child, path, ids);
+            if (isBin(child)) {
                 bins.push(path ? path + "/" + child.name : child.name);
                 visit(child, bins[bins.length - 1]);
             }
-            items.push(info);
+            if (info) {
+                items.push(info);
+            }
         });
     })(app.project.rootItem, "");
     report.bins = bins;
     report.items = items;
     report.sequences = [];
     active = app.project.activeSequence;
-    each(app.project.sequences, function (sequence) {
-        if (A.sequence ? sequence.name === A.sequence
-                : !A.active || (active && sequence.sequenceID === active.sequenceID)) {
-            report.sequences.push(sequenceInfo(sequence));
+    if (A.sequence) {
+        chosen = sequencesFor(A.sequence);
+        if (!chosen.length) {
+            fail("No sequence " + A.sequence);
         }
-    });
-    if (A.sequence && !report.sequences.length) {
-        fail("No sequence " + A.sequence);
+    } else {
+        each(app.project.sequences, function (sequence) {
+            if (!A.active || (active && sequence.sequenceID === active.sequenceID)) {
+                chosen.push(sequence);
+            }
+        });
+    }
+    for (i = 0; i < chosen.length; i++) {
+        report.sequences.push(sequenceInfo(chosen[i], active, A.tracks !== false));
     }
 }

@@ -88,6 +88,111 @@ process.stdout.write(JSON.stringify(closed));"""
         self.assertEqual(json.loads(result.stdout), ["/cuts/cut.prproj"])
 
 
+SHARED_NAMES = """
+var ProjectItemType = {BIN: 1, ROOT: 2, CLIP: 3};
+function item(name, id, path) {
+    return {name: name, type: 3, nodeId: id, getMediaPath: function () { return path; },
+        getColorLabel: function () { return 0; }, isOffline: function () { return false; },
+        getProjectMetadata: function () { return ""; },
+        getInPoint: function () { return {seconds: 0}; }, getOutPoint: function () { return {seconds: 3}; },
+        setInPoint: function () {}, setOutPoint: function () {}};
+}
+var a = item("a.mp4", "i1", "/m/a.mp4"), b = item("b.mp4", "i2", "/m/b.mp4"), copy = item("b take", "i3", "/m/b.mp4");
+function sequence(name, id) {
+    var lane = {name: "V1", transitions: {numItems: 0}, clips: {numItems: 0},
+        overwriteClip: function (source, at) {
+            require("fs").appendFileSync(PLACED, name + " " + source.name + " " + at + "\\n");
+            this.clips[this.clips.numItems++] = {name: source.name, start: {seconds: at}, end: {seconds: at + 3},
+                inPoint: {seconds: 0}, outPoint: {seconds: 3}, projectItem: source};
+        }};
+    return {name: name, sequenceID: id, projectItem: {nodeId: "p" + id}, timebase: "10160640000", end: "0",
+        frameSizeHorizontal: 1920, frameSizeVertical: 1080, markers: {getFirstMarker: function () { return null; }},
+        videoTracks: {numTracks: 1, 0: lane}, audioTracks: {numTracks: 0}};
+}
+var main = sequence("Main", "s1"), dup = sequence("Dup", "s2"), other = sequence("Dup", "s3");
+var app = {project: {path: "/p.prproj", rootItem: {type: 2, children: {numItems: 3, 0: a, 1: b, 2: copy}},
+    sequences: {numSequences: 3, 0: main, 1: dup, 2: other}, activeSequence: main,
+    openSequence: function (id) { this.activeSequence = {s1: main, s2: dup, s3: other}[id]; }}};
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class AddressingTest(unittest.TestCase):
+    """Sequences and project items are found by id or by a reference only one of them answers to."""
+
+    def setUp(self):
+        folder = Path(tempfile.mkdtemp(prefix="premiere-addressing-"))
+        self.addCleanup(shutil.rmtree, folder)
+        self.placed = folder / "placed.txt"
+        self.placed.write_text("")
+        self.jobs = 0
+        relay = node_relay(f"var PLACED = {json.dumps(str(self.placed))};" + SHARED_NAMES)
+
+        def counted(body, timeout):
+            self.jobs += 1
+            return relay(body, timeout)
+
+        patch = mock.patch.object(host, "relay", counted)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def placements(self):
+        return self.placed.read_text().splitlines()
+
+    def test_a_sequence_is_found_by_its_id(self):
+        self.assertEqual([s["id"] for s in host.inspect("s3", 60)["sequences"]], ["s3"])
+        host.clip_place("s3", "/m/a.mp4", "video", 0, 2.0, None, None, "overwrite", 60)
+        self.assertEqual(self.placements(), ["Dup a.mp4 2"])
+
+    def test_a_name_two_sequences_share_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, "2 sequences match Dup; give one of their ids: s2, s3"):
+            host.clip_place("Dup", "/m/a.mp4", "video", 0, 2.0, None, None, "overwrite", 60)
+        with self.assertRaisesRegex(ValueError, "2 sequences match Dup; give one of their ids: s2, s3"):
+            clip_tools.fade("Dup", "video", 0, 1.0, None, 1, 0, 60)
+        self.assertEqual(self.placements(), [])
+
+    def test_a_project_item_is_found_by_its_id(self):
+        listed = host.inspect(None, 60)
+        self.assertEqual([(i["name"], i["id"]) for i in listed["items"]],
+                         [("a.mp4", "i1"), ("b.mp4", "i2"), ("b take", "i3")])
+        placed = host.clip_place(None, "i3", "video", 0, 4.0, None, None, "overwrite", 60)
+        self.assertEqual(placed["clip"]["name"], "b take")
+        self.assertEqual(self.placements(), ["Main b take 4"])
+
+    def test_a_media_path_two_items_share_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, "2 project items match /m/b.mp4; give one of their ids: i2, i3"):
+            host.clip_place(None, "/m/b.mp4", "video", 0, 0.0, None, None, "overwrite", 60)
+        self.assertEqual(self.placements(), [])
+
+    def test_many_clips_are_placed_in_one_job(self):
+        placed = host.clips_place("s1", [
+            {"item": "/m/a.mp4", "at": 0.0, "kind": "video", "track": 0, "in_point": None, "out_point": None,
+             "mode": "overwrite"},
+            {"item": "i2", "at": 3.0, "kind": "video", "track": 0, "in_point": 0.5, "out_point": 2.0,
+             "mode": "overwrite"}], 60)
+        self.assertEqual(self.jobs, 1)
+        self.assertEqual((placed["sequence"], [c["start"] for c in placed["clips"]]), ("Main", [0, 3]))
+        self.assertEqual(self.placements(), ["Main a.mp4 0", "Main b.mp4 3"])
+
+    def test_a_batch_with_a_missing_track_places_nothing(self):
+        with self.assertRaisesRegex(RuntimeError, "No video track 2"):
+            host.clips_place(None, [
+                {"item": "i1", "at": 0.0, "kind": "video", "track": 0, "in_point": None, "out_point": None,
+                 "mode": "overwrite"},
+                {"item": "i1", "at": 3.0, "kind": "video", "track": 2, "in_point": None, "out_point": None,
+                 "mode": "overwrite"}], 60)
+        self.assertEqual(self.placements(), [])
+
+    def test_sequence_open_makes_the_sequence_active(self):
+        self.assertEqual(host.sequence_open("s2", 60)["id"], "s2")
+
+    def test_inspect_can_leave_out_items_and_tracks(self):
+        listed = host.inspect(None, 60, items=False, tracks=False)
+        self.assertEqual(listed["items"], [])
+        self.assertEqual([(s["id"], s["active"], s["video"]) for s in listed["sequences"]],
+                         [("s1", True, []), ("s2", False, []), ("s3", False, [])])
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is required")
 @unittest.skipUnless(shutil.which("lsof"), "lsof is required")
 class KeptUntilCheckedTest(unittest.TestCase):
