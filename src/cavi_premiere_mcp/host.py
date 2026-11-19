@@ -486,8 +486,8 @@ def item_ref(ref):
     return str(absolute(ref)) if ref.startswith(("/", "~")) else ref
 
 
-PROJECT_USES = {"open": {"path", "close_others"}, "new": {"path", "replace", "close_others"}, "save": set(),
-                "close": {"save"}}
+PROJECT_USES = {"open": {"path", "close_others"}, "new": {"path", "replace", "close_others"},
+                "save": {"path", "replace"}, "close": {"save"}}
 
 
 def project(action, path, replace, save, close_others, timeout):
@@ -505,6 +505,15 @@ def project(action, path, replace, save, close_others, timeout):
         if target.exists():
             target.unlink()
         args["path"] = str(target)
+    elif action == "save" and path:
+        # The JSX removes a replaced file, after it has checked that no open project is at that path.
+        target = absolute(path, ".prproj")
+        if target.exists() and not replace:
+            raise ValueError(f"Already exists (pass replace=true): {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        args["path"], args["replace"] = str(target), replace
+    elif action == "save" and replace:
+        raise ValueError("replace needs path")
     return invoke("project", args, timeout)
 
 
@@ -650,21 +659,30 @@ def place(sequence, item, at, kind, track, in_point, out_point, mode, clips, tim
 
 
 def clip_props(sequence, kind, track, at, position_index, props, keyframes, timeout):
-    """Motion, opacity and volume values on a placed clip; props and keyframes are keyed by property."""
+    """Motion, opacity, volume and pan values on a placed clip; props and keyframes are keyed by property."""
     if (at is None) == (position_index is None):
         raise ValueError("Give exactly one of at or position_index")
-    args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
+    if props.get("pan") is not None and kind != "audio":
+        raise ValueError("pan is for audio clips: give kind=audio")
+    args ={"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
             "keyframes": keyframes, **props}
     return invoke("clip_props", args, timeout)
 
 
 def transition_add(sequence, kind, track, at, position_index, transition, frames, edge, alignment, single_sided,
-                   timeout):
+                   timeout, remove=False):
+    """Add a transition at a clip edge, or with remove delete the one there."""
     if (at is None) == (position_index is None):
         raise ValueError("Give exactly one of at or position_index")
+    if remove:
+        reject_foreign("remove", {"transition": transition, "frames": frames, "alignment": alignment,
+                                  "single_sided": single_sided or None}, set())
+    else:
+        transition = transition or "Cross Dissolve"
+        frames, alignment = frames or 12, 0.5 if alignment is None else alignment
     args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
-            "transition": TRANSITIONS.get(transition, transition), "frames": frames, "edge": edge, "alignment": alignment,
-            "single_sided": single_sided}
+            "transition": transition and TRANSITIONS.get(transition, transition), "frames": frames, "edge": edge,
+            "alignment": alignment, "single_sided": single_sided, "remove": remove}
     return invoke("transition_add", args, timeout)
 
 
@@ -718,6 +736,9 @@ def sequence_set(sequence, change, timeout):
 def tracks(sequence, add_video, add_audio, states, timeout):
     if not (add_video or add_audio or states):
         raise ValueError("Give tracks to add or track states to set")
+    for state in states:
+        if state.get("volume_db") is not None and state["kind"] != "audio":
+            raise ValueError("volume_db is for audio tracks: give kind=audio")
     return invoke("tracks", {"sequence": sequence, "add_video": add_video, "add_audio": add_audio,
                              "tracks": states}, timeout)
 
@@ -756,10 +777,16 @@ def effect_add(sequence, kind, track, at, position_index, effect, timeout):
                                  "position_index": position_index, "effect": effect}, timeout)
 
 
-def effect_set(sequence, kind, track, at, position_index, component, component_index, list_, params, timeout):
-    """Set or list the parameters of a clip's component, by display names."""
+def effect_set(sequence, kind, track, at, position_index, component, component_index, list_, params, timeout,
+               remove=False):
+    """Set or list the parameters of a clip's component, by display names, or remove the component."""
     one_clip(at, position_index)
-    if bool(list_) == bool(params):
+    if remove:
+        if list_ or params:
+            raise ValueError("remove takes no params or list")
+        if not component:
+            raise ValueError("Give the component to remove")
+    elif bool(list_) == bool(params):
         raise ValueError("Give params to set or list=true, not both")
     if params and not component:
         raise ValueError("Give the component the parameters belong to")
@@ -770,7 +797,8 @@ def effect_set(sequence, kind, track, at, position_index, component, component_i
         elif (spec.get("value") is None) == (spec.get("color") is None):
             raise ValueError(f"{spec['name']}: give exactly one of value or color")
     args = {"sequence": sequence, "kind": kind, "track": track, "at": at, "position_index": position_index,
-            "component": component, "component_index": component_index, "list": list_, "params": params}
+            "component": component, "component_index": component_index, "list": list_, "params": params,
+            "remove": remove}
     return invoke("effect_set", args, timeout)
 
 

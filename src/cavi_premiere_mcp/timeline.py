@@ -8,25 +8,29 @@ from pydantic import BaseModel, Field
 
 from . import host
 from .app import Seconds, SequenceName, Timeout, mcp
-from .models import Result
+from .models import MarkerColor, MarkerType, Result, web_link
 
-MARKERS_EDIT_USES = {"list": set(), "update": {"index", "at", "all", "name", "comment", "move_to", "duration"},
+MARKERS_EDIT_USES = {"list": set(), "update": {"index", "at", "all", "name", "comment", "move_to", "duration",
+                                               "color", "type", "url"},
                      "delete": {"index", "at", "all"}}
 BINS_USES = {"create": {"parent"}, "rename": {"new_name"}, "move": {"items"}, "delete": {"force"}}
 
 
-def markers_edit(sequence, action, index, at, all_, name, comment, move_to, duration, timeout):
-    reject_foreign(action, {"index": index, "at": at, "all": all_ or None, "name": name, "comment": comment,
-                            "move_to": move_to, "duration": duration}, MARKERS_EDIT_USES[action])
+def markers_edit(sequence, action, index, at, all_, name, comment, move_to, duration, timeout, color=None,
+                 type_=None, url=None):
+    changes = {"name": name, "comment": comment, "move_to": move_to, "duration": duration, "color": color,
+               "type": type_, "url": url}
+    reject_foreign(action, {"index": index, "at": at, "all": all_ or None, **changes}, MARKERS_EDIT_USES[action])
     if action != "list":
         if sum([index is not None, at is not None, bool(all_)]) != 1:
             raise ValueError("Give exactly one of index, at or all")
-        if action == "update" and all(v is None for v in (name, comment, move_to, duration)):
-            raise ValueError("Give name, comment, move_to or duration")
+        if action == "update" and all(v is None for v in changes.values()):
+            raise ValueError("Give name, comment, move_to, duration, color or type")
         if action == "update" and all_ and (move_to is not None):
             raise ValueError("move_to needs one marker, not all")
-    args = {"sequence": sequence, "action": action, "index": index, "at": at, "all": all_, "name": name,
-            "comment": comment, "move_to": move_to, "duration": duration}
+        if action == "update" and (type_ is not None or url is not None):
+            web_link(type_, url)
+    args = {"sequence": sequence, "action": action, "index": index, "at": at, "all": all_, **changes}
     return host.invoke("markers_edit", args, timeout)
 
 
@@ -63,6 +67,9 @@ class MarkerRow(BaseModel):
     comment: str
     start: float
     end: float
+    color: int | None = None
+    type: str | None = None
+    url: str | None = None
 
 
 class MarkersEdited(Result):
@@ -127,10 +134,14 @@ async def premiere_markers_edit(
         comment: Annotated[str | None, Field(description="New marker comment.")] = None,
         move_to: Annotated[Seconds | None, Field(description="New start time, in seconds.")] = None,
         duration: Annotated[Seconds | None, Field(description="New duration, in seconds.")] = None,
+        color: Annotated[MarkerColor | None, Field(description="New color index, 0 to 7.")] = None,
+        type: Annotated[MarkerType | None, Field(description="New marker type; weblink needs url.")] = None,
+        url: Annotated[str | None, Field(description="Link of a weblink marker; give with type weblink.")] = None,
         sequence: SequenceName = None, timeout: Timeout = 300) -> MarkersEdited:
-    """List sequence markers, or update or delete one of them (by index or at) or all of them."""
+    """List sequence markers with their color and type, or update or delete one of them (by index or at) or
+    all of them."""
     return await asyncio.to_thread(markers_edit, sequence, action, index, at, all, name, comment, move_to,
-                                   duration, timeout)
+                                   duration, timeout, color, type, url)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)

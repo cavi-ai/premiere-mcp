@@ -1,6 +1,7 @@
 // Set Motion position (pixels), scale, rotation, Opacity and audio Volume (dB) on a placed clip,
-// static or keyframed. Keyframe times are seconds from the clip's start. Input: {sequence, kind,
-// track, at, position_index, position, scale, rotation, opacity, volume_db, keyframes: [{time, ...}]}.
+// static or keyframed, and audio Pan, static. Keyframe times are seconds from the clip's start. Input:
+// {sequence, kind, track, at, position_index, position, scale, rotation, opacity, volume_db, pan,
+// keyframes: [{time, ...}]}.
 // Volume Level is stored as linear gain where 0.17782794 is 0 dB.
 var UNITY = 0.17782794;
 
@@ -35,7 +36,7 @@ function run(A, report) {
         width = sequence.frameSizeHorizontal, height = sequence.frameSizeVertical, begin = secs(clip.inPoint),
         names = {position: ["Motion", "Position"], scale: ["Motion", "Scale"], rotation: ["Motion", "Rotation"],
             opacity: ["Opacity", "Opacity"], volume_db: ["Volume", "Level"]}, keys = A.keyframes || [], name, i,
-        handles = {}, applied = {}, series;
+        handles = {}, applied = {}, series, panner, params, param;
 
     function toRaw(key, value) {
         if (key === "position") {
@@ -67,6 +68,17 @@ function run(A, report) {
             handle(name).setValue(toRaw(name, A[name]), true);
             applied[name] = fromRaw(name, handle(name).getValue());
         }
+    }
+    if (given(A.pan)) {
+        // An audio clip's Panner is reached only through QE. Its one parameter is Pan on a mono clip and
+        // Balance on a stereo clip; both run from -100 (left) to 100 (right).
+        panner = qeItem(sequence, A.kind, A.track, clip).getClipPanComponent();
+        params = panner ? "," + panner.getParamList() + "," : "";
+        param = params.indexOf(",Pan,") >= 0 ? "Pan" : params.indexOf(",Balance,") >= 0 ? "Balance" : null;
+        if (!param || !panner.setParamValue(param, String(A.pan))) {
+            fail("Premiere could not set the clip's pan (Panner parameters: " + params.slice(1, -1) + ")");
+        }
+        applied.pan = Number(panner.getParamValue(param));
     }
     report.keyframes = {};
     for (name in names) {

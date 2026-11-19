@@ -3,9 +3,18 @@
 from typing import Annotated, Any, Literal
 
 from cavi_mcp_core.contracts import Result
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .app import Kind, Seconds, Track
+
+MarkerType = Literal["comment", "chapter", "segmentation", "weblink"]
+MarkerColor = Annotated[int, Field(ge=0, le=7)]
+
+
+def web_link(type_, url):
+    """A web link marker needs its url, and a url belongs to a web link marker."""
+    if (type_ == "weblink") != (url is not None):
+        raise ValueError("type weblink needs url, and url needs type weblink")
 
 
 class App(BaseModel):
@@ -84,6 +93,7 @@ class Project(Result):
     open: int
     sequences: int
     closed: str | None = None
+    saved_from: str | None = None
 
 
 class Item(BaseModel):
@@ -130,6 +140,9 @@ class Marker(BaseModel):
     comment: str
     start: float
     end: float
+    color: int | None = None
+    type: str | None = None
+    url: str | None = None
 
 
 class SequenceInfo(BaseModel):
@@ -207,7 +220,8 @@ class Props(Result):
 
 class Added(Result):
     clip: str
-    transition: Move
+    transition: Move | None = None
+    removed: Move | None = None
 
 
 class Replaced(Result):
@@ -295,6 +309,7 @@ class EffectSet(Result):
     clip: str
     applied: dict[str, Any]
     components: list[dict[str, Any]] | None = None
+    removed: str | None = None
 
 
 class Fit(Result):
@@ -370,6 +385,14 @@ class NewMarker(BaseModel):
     name: str = ""
     comment: str = ""
     duration: Seconds = 0
+    color: MarkerColor | None = Field(default=None, description="Marker color index, 0 to 7.")
+    type: MarkerType | None = Field(default=None, description="Marker type; comment when omitted.")
+    url: str | None = Field(default=None, description="Link of a weblink marker.")
+
+    @model_validator(mode="after")
+    def _link(self):
+        web_link(self.type, self.url)
+        return self
 
 
 class EditedClip(BaseModel):
@@ -447,6 +470,7 @@ class TrackState(BaseModel):
     locked: bool
     targeted: bool
     clips: int
+    volume: float | None = None  # audio tracks: linear gain as Premiere shows it, 1.0 is 0 dB
 
 
 class TrackLists(BaseModel):
@@ -501,4 +525,5 @@ class TrackSet(BaseModel):
     muted: bool | None = None
     locked: bool | None = None
     targeted: bool | None = None
+    volume_db: float | None = Field(default=None, ge=-96, le=6, description="Audio track Volume in dB, -96 to 6.")
 

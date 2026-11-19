@@ -1,6 +1,6 @@
 // List, update or delete sequence markers. Input: {sequence, action (list|update|delete), index | at, all,
-// name, comment, move_to, duration}. A marker is picked by its position in time order or by the time it
-// starts at. Seconds.
+// name, comment, move_to, duration, color, type, url}. A marker is picked by its position in time order or
+// by the time it starts at. Seconds.
 function readMarkers(sequence) {
     var list = [], marker = sequence.markers.getFirstMarker();
     while (marker) {
@@ -11,8 +11,9 @@ function readMarkers(sequence) {
 }
 
 function describeMarker(marker, index) {
-    return {index: index, name: marker.name, comment: marker.comments, start: secs(marker.start),
-            end: secs(marker.end)};
+    var info = markerInfo(marker);
+    info.index = index;
+    return info;
 }
 
 function pickMarkers(sequence, A) {
@@ -56,13 +57,15 @@ function run(A, report) {
     report.updated = [];
     for (i = 0; i < picked.length; i++) {
         marker = picked[i];
-        state = {name: marker.name, comment: marker.comments, start: secs(marker.start), end: secs(marker.end)};
+        state = markerInfo(marker);
         if (given(A.move_to) || given(A.duration)) {
-            // A marker's start cannot be assigned, so it is recreated at the new time.
+            // A marker's start cannot be assigned, so it is recreated at the new time with its colour and type.
             copy = sequence.markers.createMarker(given(A.move_to) ? A.move_to : state.start);
             copy.name = given(A.name) ? A.name : state.name;
             copy.comments = given(A.comment) ? A.comment : state.comment;
             copy.end = copy.start.seconds + (given(A.duration) ? A.duration : state.end - state.start);
+            styleMarker(copy, {color: state.color, type: state.type in MARKER_TYPES || state.type === "weblink"
+                ? state.type : null, url: state.url});
             sequence.markers.deleteMarker(marker);
             marker = copy;
         } else {
@@ -73,6 +76,7 @@ function run(A, report) {
                 marker.comments = A.comment;
             }
         }
+        styleMarker(marker, A);
         report.updated.push(describeMarker(marker, i));
     }
     report.total = sequence.markers.numMarkers;

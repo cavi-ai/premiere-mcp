@@ -1,7 +1,7 @@
 // Open, create, save or close a project. A project already open at the same path is closed first
 // because Premiere stalls on a second one at that path.
-// Input: {action: open|new|save|close, path, save, close_others}; close_others closes every other
-// open project unsaved after open or new.
+// Input: {action: open|new|save|close, path, replace, save, close_others}; close_others closes every other
+// open project unsaved after open or new; save with path saves the active project as that file.
 function closeOthers(path) {
     for (var i = app.projects.numProjects - 1; i >= 0; i--) {
         if (!sameFile(app.projects[i].path, path)) {
@@ -32,7 +32,31 @@ function run(A, report) {
         if (!app.project) {
             fail("No project is open");
         }
-        app.project.save();
+        if (A.path) {
+            // Save as: Premiere opens the project at the new path and closes the one at the old path.
+            if (sameFile(app.project.path, A.path)) {
+                fail("The active project is at " + A.path + "; save without path");
+            }
+            for (var i = 0; i < app.projects.numProjects; i++) {
+                if (sameFile(app.projects[i].path, A.path)) {
+                    fail("Another open project is at " + A.path);
+                }
+            }
+            if (new File(A.path).exists) {
+                if (!A.replace) {
+                    fail("Already exists (pass replace=true): " + A.path);
+                }
+                if (!new File(A.path).remove()) {
+                    fail("Could not replace " + A.path);
+                }
+            }
+            report.saved_from = app.project.path;
+            if (!app.project.saveAs(A.path)) {
+                fail("Premiere could not save the project as " + A.path);
+            }
+        } else {
+            app.project.save();
+        }
     } else if (A.action === "close") {
         if (!app.project) {
             fail("No project is open");
