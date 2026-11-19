@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -395,6 +396,73 @@ class ContractTest(unittest.TestCase):
         self.assertFalse(reply.is_error)
         self.assertEqual(reply.structured_content["clip"]["name"], "a.mp4")
         self.assertNotIn("clips", reply.structured_content)
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class OneCallAtATimeTest(unittest.TestCase):
+    def test_two_copies_at_once_never_interleave_their_jobs(self):
+        relay, jobs = node_relay(TWO_SEQUENCES), []
+
+        def slow(body, timeout):
+            args = json.loads(body.split("\n", 1)[0].removeprefix("var CAVI_ARGS = ").removesuffix(";"))
+            jobs.append(("place" if "clips" in args else "inspect", args["sequence"]))
+            time.sleep(0.3)
+            return relay(body, timeout)
+
+        start = threading.Barrier(2)
+
+        def copy(sequence):
+            start.wait()
+            clip_tools.copy(sequence, "video", 0, 1.0, None, 5.0, None, 60)
+
+        with mock.patch.object(host, "relay", slow):
+            workers = [threading.Thread(target=copy, args=(s,)) for s in ("1", "2")]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+        self.assertEqual(len(jobs), 4)
+        self.assertEqual((jobs[0][1], jobs[2][1]), (jobs[1][1], jobs[3][1]), jobs)
+
+
+class MailboxTest(unittest.TestCase):
+    def test_the_mailbox_is_private_to_its_user(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for box in (Path(folder) / "new", Path(folder) / "shared"):
+                if box.name == "shared":
+                    box.mkdir()
+                    os.chmod(box, 0o755)
+                with self.assertRaises(TimeoutError):
+                    host.mailbox_send("premierepro", "1", 0.1, box=box)
+                self.assertEqual(box.stat().st_mode & 0o777, 0o700, box.name)
+
+
+class TimeoutTest(unittest.TestCase):
+    """timeout bounds the whole call, not each wait inside it."""
+
+    def test_an_export_that_never_reports_fails_by_its_timeout(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def answer_late(body, timeout):
+                time.sleep(1)
+                return "timed out"
+
+            began = time.monotonic()
+            with mock.patch.object(host, "relay", answer_late), self.assertRaisesRegex(RuntimeError, "job failed"):
+                host.finish("1", Path(folder) / "r.json", Path(folder) / "m.mov", 1.5)
+        self.assertLess(time.monotonic() - began, 2.2)
+
+    def test_a_premiere_that_never_answers_fails_by_the_call_timeout(self):
+        patches = [mock.patch.object(host, name, value) for name, value in (
+            ("bridge", lambda: Path("/b.app")), ("premiere", lambda: Path("/p.app")), ("running", lambda app: [1]),
+            ("start", lambda app: None), ("bridge_age", lambda app: 900), ("READY_TIMEOUT", 4),
+            ("send", lambda body, timeout, target="premierepro", wait=None: "busy"))]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        began = time.monotonic()
+        with self.assertRaises(host.NotReady):
+            host.relay("1", 1)
+        self.assertLess(time.monotonic() - began, 1.7)
 
 
 class StatusTest(unittest.TestCase):

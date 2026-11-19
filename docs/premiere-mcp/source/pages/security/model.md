@@ -17,7 +17,7 @@ Premiere Pro. The other tools run only the scripts that ship in the package.
 Scripts reach Premiere Pro through a Bridge startup script that reads job files from
 `~/Library/Application Support/cavi-bridge-relay/`. Any local process that can write there can run
 ExtendScript in Adobe applications, so the folder belongs to the user and must not be shared or made
-writable by others.
+writable by others. The server sets it to mode `0700` before each job.
 
 Adobe Bridge approves the relay by its content, once. The package never changes Bridge's settings; it only
 copies the script into the Startup Scripts folder when you call `premiere_bridge_install`, and you approve

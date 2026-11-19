@@ -47,10 +47,11 @@ def fade_keys(kind, length, fade_in, fade_out):
 def fade(sequence, kind, track, at, position_index, fade_in, fade_out, timeout):
     if (at is None) == (position_index is None):
         raise ValueError("Give exactly one of at or position_index")
-    clip = clip_at(host.acted_on(sequence, timeout), kind, track, at, position_index)
-    keys = fade_keys(kind, clip["end"] - clip["start"], fade_in, fade_out)
-    props = {"position": None, "scale": None, "rotation": None, "opacity": None, "volume_db": None}
-    return host.clip_props(sequence, kind, track, at, position_index, props, keys, timeout)
+    with host.exclusive(timeout):
+        clip = clip_at(host.acted_on(sequence, timeout), kind, track, at, position_index)
+        keys = fade_keys(kind, clip["end"] - clip["start"], fade_in, fade_out)
+        props = {"position": None, "scale": None, "rotation": None, "opacity": None, "volume_db": None}
+        return host.clip_props(sequence, kind, track, at, position_index, props, keys, timeout)
 
 
 def find(sequence, query, scope, offline_only, unused_only, timeout):
@@ -88,11 +89,13 @@ def search(listed, sequence, query, scope, offline_only, unused_only):
 def copy(sequence, kind, track, at, position_index, to_time, to_track, timeout):
     if (at is None) == (position_index is None):
         raise ValueError("Give exactly one of at or position_index")
-    clip = clip_at(host.acted_on(sequence, timeout), kind, track, at, position_index)
-    if not clip.get("media_path"):
-        raise ValueError(f"{clip['name']} has no media to copy")
-    return host.clip_place(sequence, clip.get("item_id") or clip["media_path"], kind, track if to_track is None else to_track,
-                           to_time, clip["in_point"], clip["out_point"], "overwrite", timeout)
+    with host.exclusive(timeout):
+        clip = clip_at(host.acted_on(sequence, timeout), kind, track, at, position_index)
+        if not clip.get("media_path"):
+            raise ValueError(f"{clip['name']} has no media to copy")
+        return host.clip_place(sequence, clip.get("item_id") or clip["media_path"], kind,
+                               track if to_track is None else to_track, to_time, clip["in_point"], clip["out_point"],
+                               "overwrite", timeout)
 
 
 def slip(sequence, kind, track, at, position_index, offset, in_point, with_linked, timeout):
@@ -129,11 +132,13 @@ def color(sequence, track, at, position_index, values, timeout):
     given = {key: value for key, value in values.items() if value is not None}
     if not given:
         raise ValueError("Give at least one color value")
-    present = host.effect_set(sequence, "video", track, at, position_index, None, 0, True, [], timeout)
-    if not any(c["name"] == "Lumetri Color" for c in present["components"]):
-        host.effect_add(sequence, "video", track, at, position_index, "Lumetri Color", timeout)
     specs = [{"name": name, "value": given[key]} for key, name in LUMETRI if key in given]
-    return host.effect_set(sequence, "video", track, at, position_index, "Lumetri Color", 0, False, specs, timeout)
+    with host.exclusive(timeout):
+        present = host.effect_set(sequence, "video", track, at, position_index, None, 0, True, [], timeout)
+        if not any(c["name"] == "Lumetri Color" for c in present["components"]):
+            host.effect_add(sequence, "video", track, at, position_index, "Lumetri Color", timeout)
+        return host.effect_set(sequence, "video", track, at, position_index, "Lumetri Color", 0, False, specs,
+                               timeout)
 
 
 class Colored(Result):

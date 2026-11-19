@@ -21,7 +21,8 @@ your MCP client configuration:
 
 | Path | Use |
 |---|---|
-| `~/Library/Application Support/cavi-bridge-relay/` | Mailbox for job and reply files; files older than a day are removed. |
+| `~/Library/Application Support/cavi-bridge-relay/` | Mailbox for job and reply files, mode `0700`; files older than a day are removed. |
+| `$TMPDIR/cavi-premiere.lock` | Lock that lets one call at a time drive Premiere Pro. |
 | `~/Library/Application Support/Adobe/Bridge <year>/Startup Scripts/cavi-bridge-relay.jsx` | The relay, written by `premiere_bridge_install`. |
 
 A call that needs a temporary file, such as the script it sends or an export preset copy for
@@ -29,7 +30,7 @@ A call that needs a temporary file, such as the script it sends or an export pre
 
 ## Limits
 
-- `timeout` on a tool is 30 to 7200 seconds; each tool's default is in the
+- `timeout` on a tool is 30 to 7200 seconds and bounds the whole call; each tool's default is in the
   [tools reference](tools.md#tool-index).
 - At most 5000 markers per call, and a beat grid that would add more is refused.
 - At most 50 stills per `premiere_frame_export` call.

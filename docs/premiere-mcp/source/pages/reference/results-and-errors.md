@@ -15,9 +15,12 @@ the JSON the script wrote as `report`.
 | `code` | `outcome` | When |
 |---|---|---|
 | `RELAY_NOT_APPROVED` | `rejected` | Adobe Bridge has not run the relay startup script. Approve it in Bridge Settings > Startup Scripts, or run `premiere_bridge_install`. |
-| `PREMIERE_NOT_READY` | `rejected` | Premiere Pro did not answer the relay within 300 s, so no job was sent. |
+| `PREMIERE_NOT_READY` | `rejected` | Premiere Pro did not answer the relay within 300 s or the call's `timeout`, so no job was sent. |
+| `PREMIERE_BUSY` | `rejected` | Another call drove Premiere Pro for the whole `timeout`. |
 
-Each has `next_action` `inspect_inputs`. A file the call reads that does not exist is `INPUT_NOT_FOUND`. An
+Each has `next_action` `inspect_inputs`. Calls drive Premiere Pro one at a time, across every server process
+of the user; a call that sends several jobs holds Premiere Pro until its last job is done. `timeout` bounds the
+whole call: the wait for another call, for Premiere Pro to answer and for the job. A file the call reads that does not exist is `INPUT_NOT_FOUND`. An
 argument the chosen action does not read, such as `path` for `premiere_project` `save` or `bits` for
 `premiere_interchange` `xml`, is refused as `INVALID_ARGUMENT` before Premiere Pro is called.
 
