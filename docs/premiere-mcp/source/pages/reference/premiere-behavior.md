@@ -77,8 +77,10 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
 
 ## Tool behavior
 
-- A project item is addressed by its absolute media path or its name. `premiere_clip_place` imports a file
-  that is not in the project and puts the item's source in and out back after placing.
+- A project item is addressed by its id (`nodeId`), its absolute media path or its name, and a sequence by
+  its id (`sequenceID`) or its name; a reference that several answer to is refused with their ids.
+  `premiere_clip_place` and `premiere_clips_place` import a file that is not in the project and put the
+  item's source in and out back after placing.
 - `premiere_clip_props`: `position` is pixels from the top left; `scale` and `opacity` are percent;
   `rotation` is degrees; `volume_db` is dB (0 is unity). `keyframes[].time` is seconds from the clip's
   start, and a property with keyframes ignores its static value.

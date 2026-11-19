@@ -1,4 +1,4 @@
-"""Clip tools built on the project snapshot: fades, find, copy."""
+"""Clip tools built on premiere_inspect: fades, find, copy, slip and color."""
 
 import asyncio
 from typing import Annotated, Literal
@@ -11,15 +11,6 @@ from .app import ClipAt, ClipIndex, ClipKind, ClipTrack, Seconds, SequenceName, 
 from .models import Result
 
 SILENT_DB = -96
-
-
-def snapshot(sequence, timeout):
-    """The project and the tracks, in seconds, of the sequence the scripts act on: the named one, else the
-    active one."""
-    listed = host.inspect(sequence, timeout, active=True)
-    if not listed["sequences"]:
-        raise ValueError(f"No sequence {sequence}" if sequence else "No active sequence")
-    return listed, listed["sequences"][0]
 
 
 def clip_at(sequence_info, kind, track, at, position_index):
@@ -56,8 +47,7 @@ def fade_keys(kind, length, fade_in, fade_out):
 def fade(sequence, kind, track, at, position_index, fade_in, fade_out, timeout):
     if (at is None) == (position_index is None):
         raise ValueError("Give exactly one of at or position_index")
-    _, info = snapshot(sequence, timeout)
-    clip = clip_at(info, kind, track, at, position_index)
+    clip = clip_at(host.acted_on(sequence, timeout), kind, track, at, position_index)
     keys = fade_keys(kind, clip["end"] - clip["start"], fade_in, fade_out)
     props = {"position": None, "scale": None, "rotation": None, "opacity": None, "volume_db": None}
     return host.clip_props(sequence, kind, track, at, position_index, props, keys, timeout)
@@ -71,7 +61,7 @@ def search(listed, sequence, query, scope, offline_only, unused_only):
     needle = (query or "").lower()
     clips = []
     for info in listed["sequences"]:
-        if sequence and info["name"] != sequence:
+        if sequence and sequence not in (info["name"], info.get("id")):
             continue
         for kind in ("video", "audio"):
             for lane_index, lane in enumerate(info[kind]):
@@ -98,8 +88,7 @@ def search(listed, sequence, query, scope, offline_only, unused_only):
 def copy(sequence, kind, track, at, position_index, to_time, to_track, timeout):
     if (at is None) == (position_index is None):
         raise ValueError("Give exactly one of at or position_index")
-    listed, info = snapshot(sequence, timeout)
-    clip = clip_at(info, kind, track, at, position_index)
+    clip = clip_at(host.acted_on(sequence, timeout), kind, track, at, position_index)
     if not clip.get("media_path"):
         raise ValueError(f"{clip['name']} has no media to copy")
     return host.clip_place(sequence, clip["media_path"], kind, track if to_track is None else to_track,
@@ -206,8 +195,8 @@ async def premiere_find(
                                                                               "clips or both.")] = "both",
         offline_only: Annotated[bool, Field(description="Only items whose media is missing.")] = False,
         unused_only: Annotated[bool, Field(description="Only items placed on no sequence.")] = False,
-        sequence: Annotated[str | None, Field(description="Search the clips of this sequence only; every "
-                                                          "sequence when omitted.")] = None,
+        sequence: Annotated[str | None, Field(description="Search the clips of this sequence (name or id) only; "
+                                                          "every sequence when omitted.")] = None,
         timeout: Timeout = 300) -> Found:
     """Find project items and placed clips whose name or media path contains the query."""
     return await asyncio.to_thread(find, sequence, query, scope, offline_only, unused_only, timeout)

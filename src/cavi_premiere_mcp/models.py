@@ -93,6 +93,7 @@ class Project(Result):
 
 class Item(BaseModel):
     name: str
+    id: str
     bin: str
     kind: Literal["clip", "bin", "sequence"]
     media_path: str | None
@@ -138,6 +139,7 @@ class Marker(BaseModel):
 class SequenceInfo(BaseModel):
     name: str
     id: str
+    active: bool
     fps: float
     width: int
     height: int
@@ -178,6 +180,27 @@ class NewSequence(Result):
 class Placed(Result):
     sequence: str
     clip: TimelineClip
+
+
+class Placement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item: str
+    at: Seconds
+    kind: Kind = "video"
+    track: Track = 0
+    in_point: Seconds | None = None
+    out_point: Seconds | None = None
+    mode: Literal["overwrite", "insert"] = "overwrite"
+
+
+class PlacedClips(Result):
+    sequence: str
+    clips: list[TimelineClip]
+
+
+class Opened(Result):
+    sequence: str
+    id: str
 
 
 class Props(Result):

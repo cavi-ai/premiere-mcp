@@ -4,6 +4,17 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Added
+
+- `premiere_clips_place` places many project items on one sequence in one job; a missing track or item places nothing.
+- `premiere_sequence_open` makes a sequence the active one.
+- `sequence` takes a sequence's id as well as its name; project items take their id as well as a media path or name.
+- `premiere_inspect` returns each item's `id` and each sequence's `active`, and takes `items` and `tracks` to leave those parts out.
+
+### Changed
+
+- A sequence name or an item reference that several sequences or items answer to is refused with their ids instead of taking the first.
+
 ### Fixed
 
 - `premiere_razor`, `premiere_range_remove`, `premiere_clip_speed` and `premiere_frame_export` address the frame at the sequence's exact rate on 23.976, 29.97 and 59.94 fps sequences, in drop-frame timecode on a drop-frame sequence.

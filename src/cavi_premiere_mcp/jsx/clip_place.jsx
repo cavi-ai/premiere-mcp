@@ -1,28 +1,19 @@
-// Place a project item (or an importable file) on a track at a time. Input: {sequence, item, kind
-// (video|audio), track, at, in_point, out_point, mode (overwrite|insert)}. Seconds.
-function run(A, report) {
-    var sequence = findSequence(A.sequence), lane = track(sequence, A.kind, A.track), source, was, placed = null;
-    try {
-        source = findItem(A.item);
-    } catch (error) {
-        if (!new File(A.item).exists) {
-            throw error;
-        }
-        app.project.importFiles([A.item], true, app.project.rootItem, false);
-        source = findItem(A.item);
+// Place project items (or importable files) on the tracks of one sequence, in list order. Input:
+// {sequence, clips: [{item, kind (video|audio), track, at, in_point, out_point, mode (overwrite|insert)}]}.
+// Seconds. Every track and item is found, and files no item holds are imported, before the first placement.
+function place(lane, source, spec) {
+    var was = {in_point: secs(source.getInPoint()), out_point: secs(source.getOutPoint())}, placed = null;
+    if (given(spec.in_point)) {
+        source.setInPoint(spec.in_point, 4);
     }
-    was = {in_point: secs(source.getInPoint()), out_point: secs(source.getOutPoint())};
-    if (A.in_point !== null && A.in_point !== undefined) {
-        source.setInPoint(A.in_point, 4);
-    }
-    if (A.out_point !== null && A.out_point !== undefined) {
-        source.setOutPoint(A.out_point, 4);
+    if (given(spec.out_point)) {
+        source.setOutPoint(spec.out_point, 4);
     }
     try {
-        if (A.mode === "insert") {
-            lane.insertClip(source, A.at);
+        if (spec.mode === "insert") {
+            lane.insertClip(source, spec.at);
         } else {
-            lane.overwriteClip(source, A.at);
+            lane.overwriteClip(source, spec.at);
         }
     } finally {
         // The in and out points were only for this placement.
@@ -30,14 +21,38 @@ function run(A, report) {
         source.setOutPoint(was.out_point, 4);
     }
     each(lane.clips, function (clip, i) {
-        if (!placed && Math.abs(secs(clip.start) - A.at) < 0.001) {
+        if (!placed && Math.abs(secs(clip.start) - spec.at) < 0.001) {
             placed = {position: i, name: clip.name, start: secs(clip.start), end: secs(clip.end),
                 in_point: secs(clip.inPoint), out_point: secs(clip.outPoint), media_path: mediaPath(clip.projectItem)};
         }
     });
     if (!placed) {
-        fail("The clip is not on " + A.kind + " track " + A.track + " at " + A.at + " s");
+        fail("The clip is not on " + spec.kind + " track " + spec.track + " at " + spec.at + " s");
+    }
+    return placed;
+}
+
+function run(A, report) {
+    var sequence = findSequence(A.sequence), lanes = [], sources = [], missing = [], seen = {}, index = itemIndex(),
+        i, spec;
+    for (i = 0; i < A.clips.length; i++) {
+        spec = A.clips[i];
+        lanes.push(track(sequence, spec.kind, spec.track));
+        if (!itemsFor(spec.item, index).length && new File(spec.item).exists && !entriesOf(seen, spec.item)) {
+            addTo(seen, spec.item, true);
+            missing.push(spec.item);
+        }
+    }
+    if (missing.length) {
+        app.project.importFiles(missing, true, app.project.rootItem, false);
+        index = itemIndex();
+    }
+    for (i = 0; i < A.clips.length; i++) {
+        sources.push(findItem(A.clips[i].item, index));
     }
     report.sequence = sequence.name;
-    report.clip = placed;
+    report.clips = [];
+    for (i = 0; i < A.clips.length; i++) {
+        report.clips.push(place(lanes[i], sources[i], A.clips[i]));
+    }
 }

@@ -157,7 +157,7 @@ async def premiere_bins(
         parent: Annotated[str | None, Field(description="Bin to create inside; the project root when "
                                                         "omitted.")] = None,
         new_name: Annotated[str | None, Field(description="New bin name, for rename.")] = None,
-        items: Annotated[list[str] | None, Field(description="Project items to move: media paths or "
+        items: Annotated[list[str] | None, Field(description="Project items to move: ids, media paths or "
                                                              "names.")] = None,
         force: Annotated[bool, Field(description="Delete a bin that holds items, with their clips.")] = False,
         timeout: Timeout = 300) -> Bins:

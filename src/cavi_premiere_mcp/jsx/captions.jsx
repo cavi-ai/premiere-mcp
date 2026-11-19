@@ -5,12 +5,7 @@ function run(A, report) {
         "608": Sequence.CAPTION_FORMAT_608, "708": Sequence.CAPTION_FORMAT_708,
         teletext: Sequence.CAPTION_FORMAT_TELETEXT, op42: Sequence.CAPTION_FORMAT_OP42,
         op47: Sequence.CAPTION_FORMAT_OP47, open_ebu: Sequence.CAPTION_FORMAT_OPEN_EBU};
-    try {
-        item = findItem(A.file);
-    } catch (error) {
-        app.project.importFiles([A.file], true, app.project.rootItem, false);
-        item = findItem(A.file);
-    }
+    item = itemOrImport(A.file);
     app.project.openSequence(sequence.sequenceID);
     if (!sequence.createCaptionTrack(item, A.start, formats[A.format])) {
         fail("Premiere did not create the caption track");

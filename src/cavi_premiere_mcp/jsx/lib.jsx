@@ -116,18 +116,68 @@ function sameFile(a, b) {
     return a && b && new File(a).fsName === new File(b).fsName;
 }
 
-// A project item by absolute media path, else by name; bins are found by name.
-function findItem(ref) {
-    var found = null;
-    walk(app.project.rootItem, function (child) {
-        if (!found && (sameFile(mediaPath(child), ref) || child.name === ref)) {
-            found = child;
-        }
-    });
-    if (!found) {
-        fail("No project item " + ref);
+// The one entry of a lookup; none, or several that only their ids tell apart, is refused.
+function single(found, what, ref, idOf) {
+    var ids = [], i;
+    if (!found.length) {
+        fail("No " + what + " " + ref);
     }
-    return found;
+    if (found.length > 1) {
+        for (i = 0; i < found.length; i++) {
+            ids.push(idOf(found[i]));
+        }
+        fail(found.length + " " + what + "s match " + ref + "; give one of their ids: " + ids.join(", "));
+    }
+    return found[0];
+}
+
+// Lists kept by text; the "k" prefix keeps a text such as "constructor" off the object's own fields.
+function entriesOf(map, text) {
+    return map.hasOwnProperty("k" + text) ? map["k" + text] : null;
+}
+
+function addTo(map, text, value) {
+    if (!map.hasOwnProperty("k" + text)) {
+        map["k" + text] = [];
+    }
+    map["k" + text].push(value);
+}
+
+// Project items by id, by media path and by name, from one walk of the project.
+function itemIndex() {
+    var index = {id: {}, path: {}, name: {}};
+    walk(app.project.rootItem, function (child) {
+        var path = mediaPath(child);
+        addTo(index.id, child.nodeId, child);
+        if (path) {
+            addTo(index.path, new File(path).fsName, child);
+        }
+        addTo(index.name, child.name, child);
+    });
+    return index;
+}
+
+// The project items a reference names: the item with that id, else those with that absolute media path,
+// else those with that name.
+function itemsFor(ref, index) {
+    index = index || itemIndex();
+    return entriesOf(index.id, ref) || entriesOf(index.path, new File(ref).fsName) || entriesOf(index.name, ref)
+        || [];
+}
+
+// The one project item (or bin) a reference names; a reference several items answer to is refused.
+function findItem(ref, index) {
+    return single(itemsFor(ref, index), "project item", ref, function (item) {
+        return item.nodeId;
+    });
+}
+
+// The one project item a reference names, importing a file that no item holds yet.
+function itemOrImport(ref) {
+    if (!itemsFor(ref).length && new File(ref).exists) {
+        app.project.importFiles([ref], true, app.project.rootItem, false);
+    }
+    return findItem(ref);
 }
 
 function findBin(name, create) {
@@ -149,20 +199,27 @@ function findBin(name, create) {
     return found;
 }
 
-// The named sequence, opened so that it is the active one; the active sequence when no name is given.
-function findSequence(name) {
-    var found = null;
-    if (!name) {
-        found = app.project.activeSequence;
-    } else {
-        each(app.project.sequences, function (candidate) {
-            if (!found && candidate.name === name) {
-                found = candidate;
-            }
-        });
-    }
+// The sequences a reference names: the one with that id, else those with that name.
+function sequencesFor(ref) {
+    var byId = [], byName = [];
+    each(app.project.sequences, function (candidate) {
+        if (candidate.sequenceID === ref) {
+            byId.push(candidate);
+        } else if (candidate.name === ref) {
+            byName.push(candidate);
+        }
+    });
+    return byId.length ? byId : byName;
+}
+
+// The sequence a name or id names, opened so that it is the active one; the active sequence when none is
+// given. A name several sequences share is refused.
+function findSequence(ref) {
+    var found = ref ? single(sequencesFor(ref), "sequence", ref, function (sequence) {
+        return sequence.sequenceID;
+    }) : app.project.activeSequence;
     if (!found) {
-        fail(name ? "No sequence " + name : "No active sequence");
+        fail("No active sequence");
     }
     if (!app.project.activeSequence || app.project.activeSequence.sequenceID !== found.sequenceID) {
         app.project.openSequence(found.sequenceID);

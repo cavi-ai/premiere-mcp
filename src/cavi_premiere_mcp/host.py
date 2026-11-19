@@ -37,6 +37,7 @@ FAILED = "ERROR "
 MAILBOX_KEEP = 24 * 3600
 # More markers than this in one call would make a script too large for Premiere to run.
 MAX_MARKERS = 5000
+MAX_PLACEMENTS = 500
 
 # (name, bundle identifier, glob under /Applications, environment override)
 PREMIERE = ("Adobe Premiere Pro", "com.adobe.PremierePro.26",
@@ -460,9 +461,31 @@ def project(action, path, replace, save, close_others, timeout):
     return invoke("project", args, timeout)
 
 
-def inspect(sequence, timeout, active=False):
-    """The project; with active and no sequence named, only the active sequence, the one scripts act on."""
-    return invoke("inspect", {"sequence": sequence, "active": active}, timeout)
+def inspect(sequence, timeout, active=False, items=True, tracks=True):
+    """The project; with active and no sequence given, only the active sequence, the one scripts act on.
+    items and tracks false leave out the project items and each sequence's tracks and markers."""
+    return invoke("inspect", {"sequence": sequence, "active": active, "items": items, "tracks": tracks}, timeout)
+
+
+def single_sequence(listed, sequence):
+    """The one sequence inspect listed for a name or id; a name several sequences share is refused, as the
+    scripts refuse it."""
+    if len(listed) > 1:
+        raise ValueError(f"{len(listed)} sequences match {sequence}; give one of their ids: "
+                         + ", ".join(info["id"] for info in listed))
+    return listed[0]
+
+
+def acted_on(sequence, timeout):
+    """The sequence the scripts act on, with its tracks in seconds: the one named, else the active one."""
+    listed = inspect(sequence, timeout, active=True, items=False)["sequences"]
+    if not listed:
+        raise ValueError(f"No sequence {sequence}" if sequence else "No active sequence")
+    return single_sequence(listed, sequence)
+
+
+def sequence_open(sequence, timeout):
+    return invoke("sequence_open", {"sequence": sequence}, timeout)
 
 
 def import_files(files, bin, timeout):
@@ -548,12 +571,21 @@ def sequence_new(name, clip, preset, bin, timeout):
     return invoke("sequence_new", args, timeout)
 
 
+def clips_place(sequence, clips, timeout):
+    """Place project items on one sequence in one job, in list order; clips are {item, at, kind, track,
+    in_point, out_point, mode}."""
+    for clip in clips:
+        if clip["in_point"] is not None and clip["out_point"] is not None and clip["out_point"] <= clip["in_point"]:
+            raise ValueError(f"out_point must be after in_point ({clip['item']} at {clip['at']} s)")
+    return invoke("clip_place", {"sequence": sequence,
+                                 "clips": [{**clip, "item": item_ref(clip["item"])} for clip in clips]}, timeout)
+
+
 def clip_place(sequence, item, kind, track, at, in_point, out_point, mode, timeout):
-    if in_point is not None and out_point is not None and out_point <= in_point:
-        raise ValueError("out_point must be after in_point")
-    args = {"sequence": sequence, "item": item_ref(item), "kind": kind, "track": track, "at": at,
-            "in_point": in_point, "out_point": out_point, "mode": mode}
-    return invoke("clip_place", args, timeout)
+    result = clips_place(sequence, [{"item": item, "at": at, "kind": kind, "track": track, "in_point": in_point,
+                                     "out_point": out_point, "mode": mode}], timeout)
+    result["clip"] = result.pop("clips")[0]
+    return result
 
 
 def clip_props(sequence, kind, track, at, position_index, props, keyframes, timeout):
@@ -715,8 +747,8 @@ def video_clip(listed, sequence, track, at, position_index):
     if not listed:
         raise ValueError(f"No sequence named {sequence}" if sequence else "The project has no sequence")
     if sequence is None and len(listed) > 1:
-        raise ValueError("Give the sequence by name")
-    lanes = listed[0]["video"]
+        raise ValueError("Give the sequence by name or id")
+    lanes = single_sequence(listed, sequence)["video"]
     if track >= len(lanes):
         raise ValueError(f"No video track {track} (the sequence has {len(lanes)})")
     clips = lanes[track]["clips"]

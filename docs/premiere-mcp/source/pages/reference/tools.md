@@ -1,6 +1,6 @@
 # Tools
 
-The server registers 42 tools. This page lists every tool with its parameters, defaults and result
+The server registers 44 tools. This page lists every tool with its parameters, defaults and result
 fields. A test fails when a tool, a parameter, a default or a result field here differs from the
 registered catalog.
 
@@ -10,6 +10,10 @@ in the index. A tool that runs a script in Premiere Pro can also return `warning
 for non-fatal findings, and `errors`, which is empty on success; the result lists below name
 `warnings` where a tool returns it. For how failures are reported, see
 [Results and errors](results-and-errors.md).
+
+A sequence is addressed by its `id` or its name, and a project item by its `id`, its media path or its
+name; `premiere_inspect` lists both ids. An id is matched first, then a media path, then a name. A
+reference that several sequences or items answer to is refused with their ids.
 
 A clip is addressed by `kind` (`video` or `audio`), `track`, and either `at` (a timeline time inside
 the clip or at its start) or `position_index` (its place on the track). Exactly one of the two is
@@ -34,9 +38,11 @@ required.
 | `premiere_bins` | destructive | 300 | Creates, renames, deletes bins and moves items into them. |
 | `premiere_media_replace` | write | 300 | Points a project item at a new file or refreshes it. |
 | `premiere_sequence_new` | write | 300 | Creates an empty sequence. |
+| `premiere_sequence_open` | write | 300 | Makes a sequence the active one. |
 | `premiere_sequence_set` | destructive | 300 | Changes settings, in/out points, nests, duplicates, renames or deletes a sequence. |
 | `premiere_tracks` | write | 300 | Adds tracks and sets mute, lock and target state. |
 | `premiere_clip_place` | write | 300 | Places a project item on a track. |
+| `premiere_clips_place` | write | 600 | Places many project items on one sequence in one job. |
 | `premiere_clip_edit` | destructive | 300 | Trims, moves, enables, renames, links or removes a placed clip. |
 | `premiere_clip_copy` | destructive | 300 | Places another copy of a clip. |
 | `premiere_clip_slip` | destructive | 300 | Shows a different part of a clip's source in the same place. |
@@ -131,12 +137,15 @@ Returns `project`, `name`, `open`, `sequences`, `closed`, `warnings`.
 
 ### `premiere_inspect`
 
-Reports bins, project items (media path, offline state, duration, frame rate, frame size, label),
-sequences with every track's clips and transitions, and sequence markers, all in seconds.
+Reports bins, project items (id, media path, offline state, duration, frame rate, frame size, label),
+sequences (id, whether it is the active one) with every track's clips and transitions, and sequence
+markers, all in seconds. A name several sequences share lists each of them.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `sequence` | string | none | Limit the report to one sequence. |
+| `sequence` | string | none | Limit the report to the sequence with this id, or to every one with this name. |
+| `items` | boolean | `true` | List the project items; `false` leaves `items` empty and reads no item metadata. |
+| `tracks` | boolean | `true` | List each sequence's tracks and markers; `false` leaves `video`, `audio` and `markers` empty. |
 
 Returns `project`, `bins`, `items`, `sequences`, `warnings`.
 
@@ -192,12 +201,12 @@ Returns `bin`, `imported`, `warnings`.
 
 ### `premiere_items`
 
-Organizes one project item, addressed by media path or name (bins by name). Clip items cannot be
-deleted from a script; `remove` deletes bins only, with their contents.
+Organizes one project item, addressed by id, media path or name (bins by id or name). Clip items
+cannot be deleted from a script; `remove` deletes bins only, with their contents.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `item` | string | required | Media path or name. |
+| `item` | string | required | Id, media path or name. |
 | `rename` | string | none | New name. |
 | `bin` | string | none | Move to this bin, created when missing. |
 | `label` | integer | none | Color label 0 to 15. |
@@ -220,7 +229,7 @@ and their clips from every sequence, and is refused when the bin holds items unl
 | `name` | string | none | The bin. |
 | `parent` | string | none | Parent bin for `create`; the root when empty. |
 | `new_name` | string | none | New name for `rename`. |
-| `items` | list of string | none | Media paths or names for `move`. |
+| `items` | list of string | none | Ids, media paths or names for `move`. |
 | `force` | boolean | `false` | Delete a bin that holds items. |
 
 Returns `action`, `bin`, `moved`, `deleted`, `warnings`.
@@ -232,7 +241,7 @@ the new media. The call checks the result through the project.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `item` | string | required | Media path or name. |
+| `item` | string | required | Id, media path or name. |
 | `path` | string | required | The new file. |
 
 Returns `name`, `previous_path`, `media_path`, `offline`, `verified`, `sequence_clips`, `warnings`.
@@ -245,11 +254,22 @@ Creates an empty sequence with the settings of a project item or of a `.sqpreset
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
 | `name` | string | required | Sequence name. |
-| `clip` | string | none | Project item (media path or name). |
+| `clip` | string | none | Project item (id, media path or name). |
 | `preset` | string | none | Absolute `.sqpreset` path or a name `premiere_presets` lists. |
 | `bin` | string | none | Bin for the new sequence. |
 
 Returns `name`, `id`, `fps`, `width`, `height`, `video_tracks`, `audio_tracks`, `warnings`.
+
+### `premiere_sequence_open`
+
+Makes a sequence the active one, open in the Timeline panel. The tools that take `sequence` act on
+the active sequence when it is omitted.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `sequence` | string | required | Sequence id or name. |
+
+Returns `sequence`, `id`, `warnings`.
 
 ### `premiere_sequence_set`
 
@@ -290,7 +310,7 @@ project is imported first.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `item` | string | required | Media path or name. |
+| `item` | string | required | Id, media path or name. |
 | `at` | number | required | Timeline start in seconds. |
 | `kind` | `video`, `audio` | `"video"` | Track kind. |
 | `track` | integer | `0` | Track index. |
@@ -300,6 +320,20 @@ project is imported first.
 | `sequence` | string | none | The sequence. |
 
 Returns `sequence`, `clip`, `warnings`.
+
+### `premiere_clips_place`
+
+Places many project items on one sequence in one Premiere job, in list order. Every track and item is
+found, and files that are not in the project are imported, before the first clip is placed, so a
+missing track or item places nothing. An `insert` moves the clips after it, including clips placed
+earlier in the list; each returned clip is read right after its own placement.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `clips` | list of object | required | 1 to 500, each with `item`, `at` and any of `kind`, `track`, `in_point`, `out_point`, `mode`, as in `premiere_clip_place`. |
+| `sequence` | string | none | The sequence. |
+
+Returns `sequence`, `clips`, `warnings`.
 
 ### `premiere_clip_edit`
 
