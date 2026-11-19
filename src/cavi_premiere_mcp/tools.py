@@ -209,8 +209,10 @@ async def premiere_clip_props(
                                                                           "top left.")] = None,
         scale: Annotated[float | None, Field(description="Motion scale in percent.")] = None,
         rotation: Annotated[float | None, Field(description="Motion rotation in degrees.")] = None,
-        opacity: Annotated[float | None, Field(description="Opacity in percent.")] = None,
-        volume_db: Annotated[float | None, Field(description="Audio volume in dB.")] = None,
+        opacity: Annotated[Annotated[float, Field(ge=0, le=100)] | None,
+                           Field(description="Opacity in percent, 0 to 100.")] = None,
+        volume_db: Annotated[Annotated[float, Field(ge=-96, le=15)] | None,
+                             Field(description="Audio volume in dB, -96 to 15.")] = None,
         keyframes: Annotated[list[Keyframe] | None, Field(description="Keyframes, timed in seconds from the "
                                                                       "clip's start.")] = None,
         sequence: SequenceName = None, timeout: Timeout = 300) -> Props:

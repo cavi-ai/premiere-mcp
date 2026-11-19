@@ -435,8 +435,8 @@ Sets Motion position, scale and rotation, Opacity and audio Volume on a clip.
 | `position` | pair of numbers | none | Pixels from the top left. |
 | `scale` | number | none | Percent. |
 | `rotation` | number | none | Degrees. |
-| `opacity` | number | none | Percent. |
-| `volume_db` | number | none | dB; 0 is unity. |
+| `opacity` | number | none | Percent, 0 to 100. |
+| `volume_db` | number | none | dB, -96 to 15; 0 is unity. |
 | `keyframes` | list of object | none | Each has `time` (seconds from the clip's start) and any of `position`, `scale`, `rotation`, `opacity` (0 to 100), `volume_db` (-96 to 15). |
 | `sequence` | string | none | The sequence. |
 

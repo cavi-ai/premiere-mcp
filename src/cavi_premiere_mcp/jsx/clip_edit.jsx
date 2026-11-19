@@ -153,18 +153,32 @@ function run(A, report) {
         }
         gap = secs(clip.end) - secs(clip.start);
         later = [];
-        // Premiere's ripple delete shifts the later clips of every unlocked track.
+        // Premiere's ripple delete shifts the later clips of every unlocked track. A track where a clip that
+        // stays reaches past the shifted start of its first later clip is refused before anything is removed.
         if (A.remove === "ripple") {
             for (group = 0; group < 2; group++) {
                 each(group ? sequence.audioTracks : sequence.videoTracks, function (lane, laneIndex) {
+                    var stay = null, first = null, name = group ? "audio" : "video";
                     if (lane.isLocked()) {
                         return;
                     }
                     each(lane.clips, function (candidate) {
-                        if (!doomed[candidate.nodeId] && secs(candidate.start) >= secs(clip.end) - 0.0005) {
-                            later.push({kind: group ? "audio" : "video", lane: laneIndex, id: candidate.nodeId});
+                        if (doomed[candidate.nodeId]) {
+                            return;
+                        }
+                        if (secs(candidate.start) >= secs(clip.end) - 0.0005) {
+                            later.push({kind: name, lane: laneIndex, id: candidate.nodeId});
+                            if (!first || secs(candidate.start) < secs(first.start)) {
+                                first = candidate;
+                            }
+                        } else if (!stay || secs(candidate.end) > secs(stay.end)) {
+                            stay = candidate;
                         }
                     });
+                    if (stay && first && secs(stay.end) > secs(first.start) - gap + 0.0005) {
+                        fail("Ripple would move " + first.name + " onto " + stay.name + " on " + name + " track "
+                            + laneIndex + "; use remove lift, or make room on that track first");
+                    }
                 });
             }
         }
