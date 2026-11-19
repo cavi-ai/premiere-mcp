@@ -4,6 +4,13 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Fixed
+
+- `premiere_razor`, `premiere_range_remove`, `premiere_clip_speed` and `premiere_frame_export` address the frame at the sequence's exact rate on 23.976, 29.97 and 59.94 fps sequences, in drop-frame timecode on a drop-frame sequence.
+- `premiere_inspect` durations of 23.976, 29.97 and 59.94 fps media count the timecode's frames, drop frame included.
+- `premiere_sequence_set` sets a frame rate such as 12.5 exactly; a rate within 0.01 of n×1000/1001, such as 29.97, becomes that NTSC rate.
+- `premiere_cut` rounds a time half a frame from the grid up, as the scripts do.
+
 ## 0.1.1 - 2026-11-16
 
 ### Changed

@@ -34,7 +34,10 @@ function run(A, report) {
             settings.videoFrameHeight = settings.previewFrameHeight = A.settings.height;
         }
         if (given(A.settings.fps)) {
-            fps = A.settings.fps === Math.round(A.settings.fps) ? A.settings.fps : Math.round(A.settings.fps) * 1000 / 1001;
+            // 23.976 and 29.97 stand for 24000/1001 and 30000/1001; any other rate is taken as given.
+            fps = Math.round(A.settings.fps) * 1000 / 1001;
+            fps = A.settings.fps !== Math.round(A.settings.fps) && Math.abs(A.settings.fps - fps) < 0.01 ? fps
+                : A.settings.fps;
             settings.videoFrameRate = ticksTime(TICKS / fps);
         }
         if (given(A.settings.audio_rate)) {

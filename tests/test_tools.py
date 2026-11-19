@@ -232,8 +232,9 @@ class ScriptTest(unittest.TestCase):
                          {"a": None, "b": 1})
 
     def test_timecodes_use_the_frame_grid_and_carry_over_minutes_and_hours(self):
-        out = self.node("process.stdout.write(JSON.stringify([tcOf(2, 25), tcOf(0.52, 25), tcOf(61.5, 25), "
-                        "tcOf(3725, 30), tcOf(1 / 30, 30)]))")
+        out = self.node("function at(fps) { return {timebase: String(TICKS / fps)}; }\n"
+                        "process.stdout.write(JSON.stringify([tcOf(2, at(25)), tcOf(0.52, at(25)), tcOf(61.5, at(25)), "
+                        "tcOf(3725, at(30)), tcOf(1 / 30, at(30))]))")
         self.assertEqual(json.loads(out), ["00:00:02:00", "00:00:00:13", "00:01:01:13", "01:02:05:00", "00:00:00:01"])
 
     def test_every_tool_script_is_valid_javascript(self):
@@ -275,6 +276,77 @@ process.stdout.write(stringify(report));"""))
         self.assertEqual(result.returncode, 0, result.stderr)
         placed = Placed.model_validate(json.loads(result.stdout))
         self.assertEqual((placed.clip.name, placed.clip.start, placed.clip.media_path), ("a.mp4", 1, "/m/a.mp4"))
+
+
+NTSC = {"23.976": (24000, 1001), "25": (25, 1), "29.97": (30000, 1001), "59.94": (60000, 1001)}
+
+SEQUENCE_STUB = """
+var TICKS_PER_FRAME = 254016000000 * %(den)d / %(num)d, cuts = [], settings = {videoDisplayFormat: %(display)d,
+    videoFrameWidth: 1920, videoFrameHeight: 1080, videoFrameRate: {ticks: String(TICKS_PER_FRAME)},
+    audioSampleRate: {ticks: String(254016000000 / 48000)}};
+function Time() { this.ticks = "0"; }
+var sequence = {name: "S", sequenceID: "1", timebase: String(TICKS_PER_FRAME), end: String(254016000000 * 3600),
+    videoTracks: {numTracks: 1, 0: {clips: {numItems: 0}}}, audioTracks: {numTracks: 0},
+    getSettings: function () { return settings; }, setSettings: function (s) { settings = s; return true; },
+    getInPointAsTime: function () { return {ticks: "-1"}; }, getOutPointAsTime: function () { return {ticks: "-1"}; }};
+var app = {project: {activeSequence: sequence, sequences: {numSequences: 1, 0: sequence}}, enableQE: function () {}};
+var qe = {project: {getActiveSequence: function () {
+    return {getVideoTrackAt: function () { return {razor: function (tc) { cuts.push(tc); }}; }};
+}}};
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class NtscTimecodeTest(unittest.TestCase):
+    def run_tool(self, tool, rate, display, code):
+        num, den = NTSC[rate]
+        script = "\n".join((SEQUENCE_STUB % {"num": num, "den": den, "display": display},
+                            (JSX / "lib.jsx").read_text(), (JSX / f"{tool}.jsx").read_text(), code))
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_razor_sends_the_timecode_of_the_frame_at_the_real_rate(self):
+        cases = [("23.976", 110, 600, "00:09:59:10"), ("29.97", 103, 600, "00:09:59:12"),
+                 ("29.97", 102, 600, "00;10;00;00"), ("29.97", 102, 60.06, "00;01;00;02"),
+                 ("59.94", 106, 600, "00;10;00;00"), ("25", 101, 600, "00:10:00:00")]
+        for rate, display, at, timecode in cases:
+            with self.subTest(rate=rate, display=display, at=at):
+                cuts = self.run_tool("razor", rate, display, f"""
+run({{sequence: null, times: [{at}], kind: "video", track: 0}}, {{warnings: [], errors: []}});
+process.stdout.write(JSON.stringify(cuts));""")
+                self.assertEqual(cuts, [timecode])
+
+    def test_sequence_rate_is_set_exactly(self):
+        for asked, fps in ((23.976, 24000 / 1001), (29.97, 30000 / 1001), (12.5, 12.5), (25, 25)):
+            with self.subTest(fps=asked):
+                report = {"warnings": [], "errors": []}
+                report = self.run_tool("sequence_set", "25", 101, f"""
+var report = {json.dumps(report)};
+run({{sequence: null, settings: {{fps: {asked}}}}}, report);
+process.stdout.write(stringify(report));""")
+                self.assertAlmostEqual(report["sequence"]["fps"], fps, places=6)
+
+    def test_media_durations_count_frames_of_the_timecode(self):
+        cases = [("23.976", "00:10:00:00", 14400 * 1001 / 24000), ("29.97", "00;10;00;00", 17982 * 1001 / 30000),
+                 ("29.97", "00:10:00:00", 18000 * 1001 / 30000), ("25", "00:00:06:12", 6.48)]
+        for rate, timecode, seconds in cases:
+            with self.subTest(rate=rate, timecode=timecode):
+                xml = (f"<Column.Intrinsic.MediaType>Video<Column.Intrinsic.MediaTimebase>{rate}"
+                       f"<Column.Intrinsic.MediaDuration>{timecode}<Column.Intrinsic.VideoDuration>{timecode}<")
+                report = self.run_tool("inspect", rate, 101, f"""
+var ProjectItemType = {{BIN: 1, ROOT: 2, CLIP: 3}};
+var clip = {{name: "a.mov", type: 3, nodeId: "n1", getMediaPath: function () {{ return "/m/a.mov"; }},
+    getColorLabel: function () {{ return 0; }}, isOffline: function () {{ return false; }},
+    getProjectMetadata: function () {{ return {json.dumps(xml)}; }}}};
+app.project.path = "/p.prproj";
+app.project.rootItem = {{type: 2, children: {{numItems: 1, 0: clip}}}};
+app.project.sequences = {{numSequences: 0}};
+var report = {{warnings: [], errors: []}};
+run({{sequence: null}}, report);
+process.stdout.write(stringify(report));""")
+                self.assertAlmostEqual(report["items"][0]["duration"], seconds, places=6)
+                self.assertAlmostEqual(report["items"][0]["clip_duration"], seconds, places=6)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is required")

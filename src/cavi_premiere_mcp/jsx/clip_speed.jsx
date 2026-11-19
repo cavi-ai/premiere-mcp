@@ -3,7 +3,7 @@
 // a faster clip gets shorter and a slower one longer.
 function run(A, report) {
     var sequence = findSequence(A.sequence), clip = findClip(sequence, A.kind, A.track, A.at, A.position_index),
-        item = qeItem(sequence, A.kind, A.track, clip), fps = frameRate(sequence), now = secs(clip.end) - secs(clip.start),
+        item = qeItem(sequence, A.kind, A.track, clip), now = secs(clip.end) - secs(clip.start),
         current = Number(item.speed), speed, length, after;
     if ((A.speed === null || A.speed === undefined) === (A.duration === null || A.duration === undefined)) {
         fail("Give exactly one of speed or duration");
@@ -15,11 +15,11 @@ function run(A, report) {
         length = A.duration;
         speed = now * current / length;
     }
-    length = Math.round(length * fps) / fps;
+    length = snap(length, sequence);
     if (!isFinite(speed) || speed <= 0 || !(length > 0)) {
         fail("The clip would last " + length + " s at that speed; it must be at least one frame");
     }
-    if (!item.setSpeed(speed, tcOf(length, fps), A.reverse, A.maintain_pitch, A.ripple)) {
+    if (!item.setSpeed(speed, tcOf(length, sequence), A.reverse, A.maintain_pitch, A.ripple)) {
         fail("Premiere refused to set the speed");
     }
     each(track(sequence, A.kind, A.track).clips, function (candidate) {

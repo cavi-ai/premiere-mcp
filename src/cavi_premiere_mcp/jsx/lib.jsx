@@ -198,27 +198,56 @@ function findClip(sequence, kind, index, at, position) {
     return found;
 }
 
-function frameSeconds(sequence) {
-    return Number(sequence.timebase) / TICKS;
-}
-
 function closeAll() {
     for (var i = app.projects.numProjects - 1; i >= 0; i--) {
         app.projects[i].closeDocument(0, 0);
     }
 }
 
-function tcOf(seconds, fps) {
-    var frames = Math.round(seconds * fps), s = Math.floor(frames / fps), m = Math.floor(s / 60);
+// Frames dropped per minute by the drop-frame display formats: 102 is 29.97 Drop, 106 is 59.94 Drop.
+var DROPPED = {102: 2, 106: 4};
+
+// Frames per second of a sequence, exact: 23.976 is 24000/1001.
+function frameRate(sequence) {
+    return TICKS / Number(sequence.timebase);
+}
+
+function dropped(sequence) {
+    try {
+        return DROPPED[Number(sequence.getSettings().videoDisplayFormat)] || 0;
+    } catch (error) {
+        return 0;
+    }
+}
+
+// The label of a frame number counted at the whole timecode base (30 for 29.97): hh:mm:ss:ff, or the
+// drop-frame label hh;mm;ss;ff when `drop` frame numbers are skipped each minute but every tenth.
+function frameCode(frames, base, drop) {
+    var tenMinutes = base * 600 - drop * 9, minute = base * 60 - drop, rest, s, m, mark = drop ? ";" : ":";
 
     function two(n) {
         return (n < 10 ? "0" : "") + n;
     }
-    return two(Math.floor(m / 60)) + ":" + two(m % 60) + ":" + two(s % 60) + ":" + two(frames % fps);
+    if (drop) {
+        rest = frames % tenMinutes;
+        frames += drop * 9 * Math.floor(frames / tenMinutes)
+            + (rest > drop ? drop * Math.floor((rest - drop) / minute) : 0);
+    }
+    s = Math.floor(frames / base);
+    m = Math.floor(s / 60);
+    return two(Math.floor(m / 60)) + mark + two(m % 60) + mark + two(s % 60) + mark + two(frames % base);
 }
 
-function frameRate(sequence) {
-    return Math.round(TICKS / Number(sequence.timebase));
+// A time snapped to the sequence's frame grid, in seconds.
+function snap(seconds, sequence) {
+    var rate = frameRate(sequence);
+    return Math.round(seconds * rate) / rate;
+}
+
+// The timecode of the frame a sequence time falls on, in the sequence's own timecode.
+function tcOf(seconds, sequence) {
+    var rate = frameRate(sequence);
+    return frameCode(Math.round(seconds * rate), Math.round(rate), dropped(sequence));
 }
 
 // The QE item of a clip: the nth item of type Clip on the QE track is the nth clip of the track.
