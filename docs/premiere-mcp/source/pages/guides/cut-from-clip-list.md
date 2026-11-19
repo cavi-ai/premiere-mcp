@@ -59,4 +59,7 @@ their old frames until you call `premiere_media_replace` for them.
 - `ffprobe` must be installed (it is found on `PATH` or in the usual Homebrew folders): the cut reads the
   first clip's frame rate with it and counts the master's frames.
 - Premiere Pro stalls when a project is created at a path where another project is still open, so the
-  cut closes every open project without saving before it creates its own.
+  cut closes a project open at its path without saving before it creates its own. Other open projects
+  stay open.
+- With `replace`, the old project, master and report are deleted only after the clips, the frame rate
+  and the ProRes preset are found.

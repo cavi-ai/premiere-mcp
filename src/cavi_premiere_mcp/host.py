@@ -12,6 +12,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from cavi_mcp_core import apps
+from cavi_mcp_core.contracts import OperationUnknown
 from cavi_mcp_core.proc import diagnostics, run_sync
 from cavi_mcp_core.server import need
 
@@ -336,6 +337,33 @@ def probe(path, entries):
     return result.stdout.split()[0]
 
 
+def streams(path, *options):
+    result = run_sync([ffprobe(), "-v", "error", *options, "-show_entries",
+                       "stream=codec_type,nb_frames,nb_read_packets,duration", "-of", "json", str(path)], 60)
+    if result.returncode:
+        raise RuntimeError(f"ffprobe could not read {path}: " + diagnostics(result))
+    return json.loads(result.stdout).get("streams", [])
+
+
+def master_frames(master, fps):
+    """Video frames of a written master, from its packets when the container keeps no count; for a master
+    without video, the frames at fps its audio lasts. A master that cannot be counted leaves the outcome
+    unknown: the job has run."""
+    try:
+        found = streams(master)
+        video = [s for s in found if s.get("codec_type") == "video"]
+        if video and video[0].get("nb_frames", "").isdigit():
+            return int(video[0]["nb_frames"])
+        if video:
+            return int(streams(master, "-count_packets", "-select_streams", "v:0")[0]["nb_read_packets"])
+        audio = [s for s in found if s.get("codec_type") == "audio" and "duration" in s]
+        if not audio:
+            raise RuntimeError("no video or audio stream")
+        return round(Fraction(audio[0]["duration"]) * Fraction(fps))
+    except (ValueError, LookupError, RuntimeError) as error:
+        raise OperationUnknown(f"{master} was written but its frames could not be counted: {error}") from error
+
+
 def plan(clips, fps):
     """Clips snapped to the frame grid, in timeline order, without overlaps; and the cut's end frame."""
     names, planned, end = {}, [], 0
@@ -372,15 +400,16 @@ def cut(project, master, clips, audio, replace, timeout):
         raise ValueError("Already exists (pass replace=true): " + ", ".join(map(str, present)))
     rate = Fraction(probe(absolute(clips[0]["file"]), "r_frame_rate"))
     planned, end = plan(clips, rate)
+    preset = prores_preset()
     for path in present:
         path.unlink()
     project.parent.mkdir(parents=True, exist_ok=True)
     master.parent.mkdir(parents=True, exist_ok=True)
     args = {"project": str(project), "clips": planned, "audio": audio and str(audio), "master": str(master),
-            "preset": str(prores_preset()), "fps": round(rate), "report": str(report)}
+            "preset": str(preset), "fps": round(rate), "report": str(report)}
     result = finish(tool_script("cut", args), report, master, timeout)
     return {"project": str(project), "master": str(master), "fps": str(rate),
-            "frames": int(probe(master, "nb_frames")), "cut_frames": end,
+            "frames": master_frames(master, rate), "cut_frames": end,
             "transitions": result["transitions"], "warnings": result["warnings"]}
 
 
@@ -431,8 +460,9 @@ def project(action, path, replace, save, close_others, timeout):
     return invoke("project", args, timeout)
 
 
-def inspect(sequence, timeout):
-    return invoke("inspect", {"sequence": sequence}, timeout)
+def inspect(sequence, timeout, active=False):
+    """The project; with active and no sequence named, only the active sequence, the one scripts act on."""
+    return invoke("inspect", {"sequence": sequence, "active": active}, timeout)
 
 
 def import_files(files, bin, timeout):
@@ -795,7 +825,8 @@ def launch_encoder():
 def render(tool, sequence, master, preset, range_, replace, timeout, burn_captions=None):
     """Run export.jsx or encode.jsx; judged by the report, the released file and ffprobe frames.
 
-    Every input is checked before Premiere or Media Encoder is touched.
+    Every input is checked before Premiere or Media Encoder is touched, and an existing master is deleted
+    only once nothing is left that can refuse the call.
     """
     if range_ not in ("entire", "in_out", "work_area"):
         raise ValueError(f"range is entire, in_out or work_area: {range_}")
@@ -803,19 +834,20 @@ def render(tool, sequence, master, preset, range_, replace, timeout, burn_captio
     if master.exists() and not replace:
         raise ValueError(f"Already exists (pass replace=true): {master}")
     preset = Path(resolve_preset("export", preset) if preset else prores_preset())
+    ffprobe()
+    if tool == "encode":
+        launch_encoder()
     with tempfile.TemporaryDirectory(prefix="premiere-render-") as folder:
         if burn_captions is not None:
             preset = caption_preset(preset, burn_captions, folder)
         master.parent.mkdir(parents=True, exist_ok=True)
         if master.exists():
             master.unlink()
-        if tool == "encode":
-            launch_encoder()
         report = Path(folder) / "report.json"
         args = {"sequence": sequence, "master": str(master), "preset": str(preset), "range": range_,
                 "report": str(report)}
         result = finish(tool_script(tool, args), report, master, timeout)
-    frames = int(probe(master, "nb_frames"))
+    frames = master_frames(master, result["fps"])
     expected = round(result["span"] * result["fps"])
     return {"sequence": result["sequence"], "master": str(master), "fps": result["fps"], "frames": frames,
             "expected_frames": expected, "complete": frames == expected, "warnings": result["warnings"]}

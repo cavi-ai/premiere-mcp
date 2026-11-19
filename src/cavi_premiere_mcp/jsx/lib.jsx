@@ -198,9 +198,12 @@ function findClip(sequence, kind, index, at, position) {
     return found;
 }
 
-function closeAll() {
+// Close, unsaved, a project open at the path: Premiere stalls on a second one at the same path.
+function closeAt(path) {
     for (var i = app.projects.numProjects - 1; i >= 0; i--) {
-        app.projects[i].closeDocument(0, 0);
+        if (sameFile(app.projects[i].path, path)) {
+            app.projects[i].closeDocument(0, 0);
+        }
     }
 }
 

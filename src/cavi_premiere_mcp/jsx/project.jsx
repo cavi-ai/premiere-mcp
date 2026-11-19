@@ -2,14 +2,6 @@
 // because Premiere stalls on a second one at that path.
 // Input: {action: open|new|save|close, path, save, close_others}; close_others closes every other
 // open project unsaved after open or new.
-function closeAt(path) {
-    for (var i = app.projects.numProjects - 1; i >= 0; i--) {
-        if (sameFile(app.projects[i].path, path)) {
-            app.projects[i].closeDocument(0, 0);
-        }
-    }
-}
-
 function closeOthers(path) {
     for (var i = app.projects.numProjects - 1; i >= 0; i--) {
         if (!sameFile(app.projects[i].path, path)) {

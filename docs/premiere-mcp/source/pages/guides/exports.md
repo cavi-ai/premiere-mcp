@@ -39,7 +39,8 @@ The result had `frames` 50, `expected_frames` 50 and `complete` true. `ffprobe` 
 video with AAC audio.
 
 `complete` is true when the frame count that `ffprobe` read from the file equals the length of the
-range. The export is judged by the report file, by no process holding the output open and by that
+range. A container that keeps no frame count is counted by its video packets; a file without video
+counts the frames its audio lasts at the sequence's rate. The export is judged by the report file, by no process holding the output open and by that
 frame count, not by the relay's answer: the relay can answer `timed out` while Premiere Pro keeps
 exporting.
 

@@ -10,6 +10,10 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_inspect` durations of 23.976, 29.97 and 59.94 fps media count the timecode's frames, drop frame included.
 - `premiere_sequence_set` sets a frame rate such as 12.5 exactly; a rate within 0.01 of n×1000/1001, such as 29.97, becomes that NTSC rate.
 - `premiere_cut` rounds a time half a frame from the grid up, as the scripts do.
+- `premiere_cut` closes only a project open at its own path; other open projects stay open.
+- `premiere_clip_copy` and `premiere_fade` without `sequence` act on the active sequence, not the project's first.
+- `premiere_cut`, `premiere_export` and `premiere_encode` with `replace` keep the old files when the ProRes preset, `ffprobe` or Media Encoder is missing.
+- `premiere_export` and `premiere_encode` count a master whose container keeps no frame count by its packets, and a master without video by its audio duration; a master that cannot be counted is reported `OUTCOME_UNKNOWN`.
 
 ## 0.1.1 - 2026-11-16
 

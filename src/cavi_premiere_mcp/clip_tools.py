@@ -14,10 +14,11 @@ SILENT_DB = -96
 
 
 def snapshot(sequence, timeout):
-    """The project and the one sequence's tracks, in seconds."""
-    listed = host.inspect(sequence, timeout)
+    """The project and the tracks, in seconds, of the sequence the scripts act on: the named one, else the
+    active one."""
+    listed = host.inspect(sequence, timeout, active=True)
     if not listed["sequences"]:
-        raise ValueError(f"No sequence {sequence}" if sequence else "The project has no sequence")
+        raise ValueError(f"No sequence {sequence}" if sequence else "No active sequence")
     return listed, listed["sequences"][0]
 
 
@@ -101,7 +102,7 @@ def copy(sequence, kind, track, at, position_index, to_time, to_track, timeout):
     clip = clip_at(info, kind, track, at, position_index)
     if not clip.get("media_path"):
         raise ValueError(f"{clip['name']} has no media to copy")
-    return host.clip_place(info["name"], clip["media_path"], kind, track if to_track is None else to_track,
+    return host.clip_place(sequence, clip["media_path"], kind, track if to_track is None else to_track,
                            to_time, clip["in_point"], clip["out_point"], "overwrite", timeout)
 
 
