@@ -33,10 +33,10 @@ function property(clip, group, name) {
 
 function run(A, report) {
     var sequence = findSequence(A.sequence), clip = findClip(sequence, A.kind, A.track, A.at, A.position_index),
-        width = sequence.frameSizeHorizontal, height = sequence.frameSizeVertical, begin = secs(clip.inPoint),
+        width = sequence.frameSizeHorizontal, height = sequence.frameSizeVertical,
         names = {position: ["Motion", "Position"], scale: ["Motion", "Scale"], rotation: ["Motion", "Rotation"],
             opacity: ["Opacity", "Opacity"], volume_db: ["Volume", "Level"]}, keys = A.keyframes || [], name, i,
-        handles = {}, applied = {}, series, panner, params, param;
+        handles = {}, applied = {}, series, panner, params, param, at = keys.length ? keyClock(clip) : null;
 
     function toRaw(key, value) {
         if (key === "position") {
@@ -96,13 +96,13 @@ function run(A, report) {
         }
         handle(name).setTimeVarying(true);
         for (i = 0; i < series.length; i++) {
-            handle(name).addKey(begin + series[i].time);
-            handle(name).setValueAtKey(begin + series[i].time, toRaw(name, series[i][name]), true);
+            handle(name).addKey(at(series[i].time));
+            handle(name).setValueAtKey(at(series[i].time), toRaw(name, series[i][name]), true);
         }
         report.keyframes[name] = [];
         for (i = 0; i < series.length; i++) {
             report.keyframes[name].push({time: series[i].time,
-                value: fromRaw(name, handle(name).getValueAtTime(begin + series[i].time))});
+                value: fromRaw(name, handle(name).getValueAtTime(at(series[i].time)))});
         }
     }
     report.clip = clip.name;

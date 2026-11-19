@@ -98,6 +98,16 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
     held it open.
 26. `Project.saveAs(path)` returns true, writes the project at `path`, opens it and closes the project at the
     old path. The old file stays on disk and other open projects stay open.
+27. A retimed clip's `inPoint` and `outPoint` read source time divided by the speed: source 1 to 5 s at
+    200% reads 0.5 and 2.5. `getSpeed()` returns the ratio (2), also on a reversed clip, and
+    `isSpeedReversed()` the direction. Keyframe times (`addKey`, `getValueAtTime`) are source times: opacity
+    keys at 0 and 2 on a 200% white clip rendered alpha 133 at 0.5 s and 255 at 1 s; keys at
+    (`inPoint` + offset) × speed render 66, 128 and 255 at 0.5, 1 and 2 s, as on a 100% clip. QE `setSpeed(ratio, duration,
+    reverse, pitch, ripple)` with `duration` equal to the clip's span keeps the span and plays further into
+    the source (source 0 to 3 s at 2 became source 0 to 6 s in the same 3 s).
+28. A 480 × 270 movie with sample aspect 2 reads `VideoInfo` `480 x 270 (2.0)` and
+    `getFootageInterpretation().pixelAspectRatio` 2; a square-pixel sequence reads `videoPixelAspectRatio`
+    `1:1`. QE `exportFramePNG` writes RGBA, so a clip's opacity is read from the alpha channel.
 
 ## Tool behavior
 

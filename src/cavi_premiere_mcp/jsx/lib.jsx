@@ -122,10 +122,55 @@ function markerInfo(marker) {
     return info;
 }
 
+// Source seconds a clip plays per timeline second: 2 at 200%. A clip's DOM in and out points read source
+// time divided by it; getSpeed stays positive on a reversed clip.
+function speedOf(clip) {
+    var ratio;
+    try {
+        ratio = Number(clip.getSpeed());
+    } catch (error) {
+        ratio = 1;
+    }
+    return ratio > 0 && isFinite(ratio) ? ratio : 1;
+}
+
+function reversedOf(clip) {
+    try {
+        return !!clip.isSpeedReversed();
+    } catch (error) {
+        return false;
+    }
+}
+
+function micro(seconds) {
+    return Math.round(seconds * 1000000) / 1000000;
+}
+
+function sourceIn(clip) {
+    return micro(secs(clip.inPoint) * speedOf(clip));
+}
+
+function sourceOut(clip) {
+    return micro(secs(clip.outPoint) * speedOf(clip));
+}
+
+// Keyframe times are source times: a key `offset` seconds after the clip's start on the timeline sits at
+// (in point + offset) x speed. Keys on a reversed clip are refused.
+function keyClock(clip) {
+    var begin = secs(clip.inPoint), ratio = speedOf(clip);
+    if (reversedOf(clip)) {
+        fail("Keyframes on a reversed clip are not supported");
+    }
+    return function (offset) {
+        return (begin + offset) * ratio;
+    };
+}
+
 function clipInfo(clip, position) {
     var item = clip.projectItem || null;
     return {position: position, name: clip.name, item_id: item ? item.nodeId : null, start: secs(clip.start),
-        end: secs(clip.end), in_point: secs(clip.inPoint), out_point: secs(clip.outPoint), media_path: mediaPath(item)};
+        end: secs(clip.end), in_point: sourceIn(clip), out_point: sourceOut(clip),
+        speed: Math.round(speedOf(clip) * 10000) / 100, reversed: reversedOf(clip), media_path: mediaPath(item)};
 }
 
 function isBin(item) {
@@ -360,6 +405,91 @@ function qeItem(sequence, kind, index, clip) {
         }
     }
     fail("QE has no item for the clip");
+}
+
+// How a placement is retimed to play spec.in_point to spec.out_point of the source at spec.speed (percent),
+// backwards when spec.reversed; null when it is not retimed. A faster clip is placed at its timeline length
+// and sped up in that span; a slower one is placed at its source length and stretched, so the track must be
+// free where it grows. Checked before any change.
+function retiming(sequence, lane, spec) {
+    var ratio = given(spec.speed) ? spec.speed / 100 : 1, length, placed, from, to;
+    if (ratio === 1 && spec.reversed !== true) {
+        return null;
+    }
+    if (!given(spec.in_point) || !given(spec.out_point) || !(ratio > 0)) {
+        fail("A retimed placement needs its in_point, out_point and a positive speed");
+    }
+    length = snap((spec.out_point - spec.in_point) / ratio, sequence);
+    if (!(length > 0)) {
+        fail("The clip would last " + length + " s at " + spec.speed + "%; it must be at least one frame");
+    }
+    placed = ratio >= 1 ? length : spec.out_point - spec.in_point;
+    from = spec.mode === "insert" ? spec.at : spec.at + placed;
+    to = from + length - placed;
+    each(lane.clips, function (clip) {
+        if (to - from > 0.0005 && secs(clip.start) < to - 0.0005 && secs(clip.end) > from + 0.0005) {
+            fail("No room for the clip at " + spec.at + " s on " + spec.kind + " track " + spec.track + ": at "
+                + spec.speed + "% it lasts " + length + " s and would run into " + clip.name + " at "
+                + secs(clip.start) + " s");
+        }
+    });
+    return {ratio: ratio, reversed: spec.reversed === true, length: length, out_point: spec.in_point + placed};
+}
+
+// Place a project item on a lane at spec.at with spec.in_point and spec.out_point (source seconds) set for
+// this placement only, retimed when spec.speed or spec.reversed asks. Input spec: {at, kind, track,
+// in_point, out_point, mode (overwrite|insert), speed, reversed}. Reports the placed clip.
+function place(sequence, lane, source, spec) {
+    var plan = retiming(sequence, lane, spec), frame = 1 / frameRate(sequence),
+        was = {in_point: secs(source.getInPoint()), out_point: secs(source.getOutPoint())}, placed = null,
+        position = null, nearest = frame / 2 + 0.001, id;
+    if (given(spec.in_point)) {
+        source.setInPoint(spec.in_point, 4);
+    }
+    if (given(spec.out_point)) {
+        source.setOutPoint(plan ? plan.out_point : spec.out_point, 4);
+    }
+    try {
+        if (spec.mode === "insert") {
+            lane.insertClip(source, spec.at);
+        } else {
+            lane.overwriteClip(source, spec.at);
+        }
+    } finally {
+        // The in and out points were only for this placement.
+        source.setInPoint(was.in_point, 4);
+        source.setOutPoint(was.out_point, 4);
+    }
+    // Premiere moves the start to the nearest frame.
+    each(lane.clips, function (clip, i) {
+        var off = Math.abs(secs(clip.start) - spec.at);
+        if (off < nearest) {
+            nearest = off;
+            placed = clip;
+            position = i;
+        }
+    });
+    if (!placed) {
+        fail("The clip is not on " + spec.kind + " track " + spec.track + " at " + spec.at + " s");
+    }
+    if (plan) {
+        if (!qeItem(sequence, spec.kind, spec.track, placed).setSpeed(plan.ratio, tcOf(plan.length, sequence),
+                plan.reversed, true, false)) {
+            fail("Premiere refused to retime the clip at " + spec.at + " s");
+        }
+        id = placed.nodeId;
+        each(lane.clips, function (clip, i) {
+            if (clip.nodeId === id) {
+                placed = clip;
+                position = i;
+            }
+        });
+        if (Math.abs(secs(placed.end) - secs(placed.start) - plan.length) > frame / 2) {
+            fail("Premiere retimed the clip at " + spec.at + " s to " + (secs(placed.end) - secs(placed.start))
+                + " s, not " + plan.length + " s");
+        }
+    }
+    return clipInfo(placed, position);
 }
 
 // Seconds covered by an export range: the whole sequence, its in/out points or its work area.

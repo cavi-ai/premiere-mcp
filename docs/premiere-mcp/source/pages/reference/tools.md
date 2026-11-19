@@ -141,7 +141,8 @@ Returns `project`, `name`, `open`, `sequences`, `closed`, `saved_from`, `warning
 
 Reports bins, project items (id, media path, offline state, duration, frame rate, frame size, label),
 sequences (id, whether it is the active one) with every track's clips and transitions, and sequence
-markers, all in seconds. A name several sequences share lists each of them.
+markers, all in seconds. A clip's `in_point` and `out_point` are source seconds, `speed` is percent and
+`reversed` is true when it plays backwards. A name several sequences share lists each of them.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -356,8 +357,9 @@ Returns `sequence`, `clip`, `removed`, `note`, `warnings`.
 
 ### `premiere_clip_copy`
 
-Places another copy of a clip (same project item, same source range) at `to_time`, optionally on another
-track of the same kind. The copy overwrites what is there and does not carry effects.
+Places another copy of a clip (same project item, source range, speed and direction) at `to_time`,
+optionally on another track of the same kind. The copy overwrites what is there and does not carry
+effects. A slowed clip is refused when the copy would grow into a clip after `to_time`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -378,7 +380,7 @@ past the end of the media is undone and reported. Exactly one of `offset` and `i
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `offset` | number | none | Seconds to move the source in point; positive shows later footage. |
+| `offset` | number | none | Source seconds to move the in point; positive shows later footage. |
 | `in_point` | number | none | Set the source in point. |
 | `kind` | `video`, `audio` | `"video"` | Track kind. |
 | `track` | integer | `0` | Track index. |
@@ -413,6 +415,7 @@ Returns `clip`, `speed`, `reversed`, `start`, `end`, `duration`, `warnings`.
 ### `premiere_clip_fit`
 
 Sets a video clip's Motion Scale and centers it so its source fits inside the frame or covers it.
+Widths count the pixel aspect ratio of the source and of the sequence.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -422,12 +425,13 @@ Sets a video clip's Motion Scale and centers it so its source fits inside the fr
 | `position_index` | integer | none | Address by place on the track. |
 | `sequence` | string | none | The sequence. |
 
-Returns `clip`, `source`, `sequence_size`, `scale`, `warnings`.
+Returns `clip`, `source`, `pixel_aspect`, `sequence_size`, `scale`, `warnings`.
 
 ### `premiere_clip_props`
 
 Sets Motion position, scale and rotation, Opacity, audio Volume and audio Pan on a clip.
-`keyframes` animate the properties they set, except `pan`, and win over the static value.
+`keyframes` animate the properties they set, except `pan`, and win over the static value. Key times
+follow a retimed clip's speed; keyframes on a reversed clip are refused.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -591,7 +595,8 @@ Returns `sequence`, `mode`, `start`, `end`, `removed`, `moved`, `sequence_end`, 
 ### `premiere_scene_detect`
 
 Finds hard cuts inside a placed video clip from its media (an ffmpeg scene score above `threshold`)
-and returns them as timeline seconds. Needs `ffmpeg`.
+and returns them as timeline seconds, through the clip's speed and direction. Only the clip's source
+range is decoded. Needs `ffmpeg`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|

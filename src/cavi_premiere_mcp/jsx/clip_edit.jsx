@@ -31,7 +31,7 @@ function clipState(sequence, kind, index, clip) {
         }
     });
     info = {track: index, name: clip.name, start: secs(clip.start), end: secs(clip.end),
-        in_point: secs(clip.inPoint), out_point: secs(clip.outPoint), enabled: !clip.disabled, position: null,
+        in_point: sourceIn(clip), out_point: sourceOut(clip), enabled: !clip.disabled, position: null,
         linked: 0};
     each(track(sequence, kind, index).clips, function (candidate, i) {
         if (candidate.nodeId === clip.nodeId) {
@@ -70,7 +70,7 @@ function run(A, report) {
             fail("The clip has no source range to trim");
         }
         if (begin + (ns - start) / ratio < -0.0005) {
-            fail("The clip has no source before " + begin + " s to extend its start to " + ns + " s");
+            fail("The clip has no source before " + sourceIn(clip) + " s to extend its start to " + ns + " s");
         }
         // A start past the current end needs the end moved first.
         if (ns >= end) {
@@ -86,24 +86,20 @@ function run(A, report) {
     if (given(A.move_to) || given(A.to_track)) {
         ns = given(A.move_to) ? A.move_to : secs(clip.start);
         if (given(A.to_track) && A.to_track !== index) {
-            // A clip cannot change tracks in place: it is placed again on the target track with its source range.
+            // A clip cannot change tracks in place: it is placed again on the target track with its source range
+            // and its speed.
             lane = track(sequence, kind, A.to_track);
             // The clip is removed before it is placed again, so a refusal after that would lose it.
             if (lane.isLocked()) {
                 fail("The " + kind + " track " + A.to_track + " is locked");
             }
             source = clip.projectItem;
-            was = {name: clip.name, enabled: !clip.disabled, begin: secs(clip.inPoint), stop: secs(clip.outPoint)};
+            was = {enabled: !clip.disabled, spec: {at: ns, kind: kind, track: A.to_track, in_point: sourceIn(clip),
+                out_point: sourceOut(clip), mode: "overwrite", speed: Math.round(speedOf(clip) * 10000) / 100,
+                reversed: reversedOf(clip)}};
+            retiming(sequence, lane, was.spec);
             clip.remove(false, false);
-            was.item = {begin: secs(source.getInPoint()), stop: secs(source.getOutPoint())};
-            source.setInPoint(was.begin, 4);
-            source.setOutPoint(was.stop, 4);
-            try {
-                lane.overwriteClip(source, ns);
-            } finally {
-                source.setInPoint(was.item.begin, 4);
-                source.setOutPoint(was.item.stop, 4);
-            }
+            place(sequence, lane, source, was.spec);
             index = A.to_track;
             clip = findClip(sequence, kind, index, ns, null);
             clip.disabled = !was.enabled;

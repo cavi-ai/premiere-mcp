@@ -59,7 +59,12 @@ function removeComponent(sequence, A, clip) {
 
 function run(A, report) {
     var sequence = findSequence(A.sequence), clip = findClip(sequence, A.kind, A.track, A.at, A.position_index),
-        begin = secs(clip.inPoint), component = null, n = 0, i, k, spec, handle, key, at, shown;
+        when = null, component = null, n = 0, i, k, spec, handle, key, at, shown;
+    for (i = 0; i < (A.params || []).length; i++) {
+        if (!when && A.params[i].keyframes && A.params[i].keyframes.length) {
+            when = keyClock(clip);
+        }
+    }
     if (A.component) {
         each(clip.components, function (candidate) {
             if (candidate.displayName === A.component) {
@@ -88,7 +93,7 @@ function run(A, report) {
             handle.setTimeVarying(true);
             for (k = 0; k < spec.keyframes.length; k++) {
                 key = spec.keyframes[k];
-                at = begin + key.time;
+                at = when(key.time);
                 handle.addKey(at);
                 write({setValue: function (v, u) { handle.setValueAtKey(at, v, u); },
                     setColorValue: function (a, r, g, b, u) { handle.setColorValueAtKey(at, a, r, g, b, u); }},
@@ -99,7 +104,7 @@ function run(A, report) {
             }
             shown = [];
             for (k = 0; k < spec.keyframes.length; k++) {
-                shown.push({time: spec.keyframes[k].time, value: handle.getValueAtTime(begin + spec.keyframes[k].time)});
+                shown.push({time: spec.keyframes[k].time, value: handle.getValueAtTime(when(spec.keyframes[k].time))});
             }
             report.applied[spec.name] = shown;
         } else {
