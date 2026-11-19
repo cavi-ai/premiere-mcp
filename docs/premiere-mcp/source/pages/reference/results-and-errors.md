@@ -1,33 +1,29 @@
 # Results and errors
 
-## Results
-
-Every tool returns structured content that matches its output schema, and the server checks the report
-of the Premiere Pro script against that schema before it returns it. The fields of each tool are in the
-[tools reference](tools.md). Times are seconds and paths are absolute.
+Every tool returns the result and error shapes of the
+[MCP Core contract](https://github.com/cavi-ai/mcp-core/blob/main/docs/mcp-core/source/pages/reference/results-and-errors.md):
+structured content that matches the tool's output schema, with optional fields the tool did not set left
+out, and on failure an `error` with `code`, `outcome` and `next_action`. This page lists what this server
+adds. The fields of each tool are in the [tools reference](tools.md). Times are seconds and paths are
+absolute.
 
 `premiere_script` returns the script's last value as `answer` and, when `report` names a `.json` path,
 the JSON the script wrote as `report`.
 
-## Errors
+## Codes
 
-A failed call is a tool error: `isError` is true, the content is the cause as readable text, and the
-structured content has this shape:
+| `code` | `outcome` | When |
+|---|---|---|
+| `RELAY_NOT_APPROVED` | `rejected` | Adobe Bridge has not run the relay startup script. Approve it in Bridge Settings > Startup Scripts, or run `premiere_bridge_install`. |
+| `PREMIERE_NOT_READY` | `rejected` | Premiere Pro did not answer the relay within 300 s, so no job was sent. |
 
-```json
-{"error": {"version": 1, "code": "INVALID_ARGUMENT", "operation": "premiere_export",
-           "outcome": "rejected", "retry_safe": false, "next_action": "inspect_inputs"}}
-```
+Each has `next_action` `inspect_inputs`. A file the call reads that does not exist is `INPUT_NOT_FOUND`. An
+argument the chosen action does not read, such as `path` for `premiere_project` `save` or `bits` for
+`premiere_interchange` `xml`, is refused as `INVALID_ARGUMENT` before Premiere Pro is called.
 
-| `code` | `outcome` | `next_action` | When |
-|---|---|---|---|
-| `INVALID_ARGUMENT` | `rejected` | `inspect_inputs` | An argument is out of range, relative or inconsistent. Nothing was sent to Premiere Pro. |
-| `INPUT_NOT_FOUND` | `rejected` | `inspect_inputs` | A file the call needs does not exist. |
-| `OUTCOME_UNKNOWN` | `unknown` | `inspect_application_and_outputs` | Anything else: a script that threw, a report that could not be read, a job that could not start. The project may have changed. |
+## Recovery
 
-`retry_safe` is always false: the server never claims that repeating a call is harmless. After an
-`unknown` outcome, read the project with `premiere_inspect` and check the output files before you call
-again.
-
-A script that throws, an unreadable report and a job that cannot start are reported at once; the server
-does not wait out the timeout.
+An `unknown` outcome means the project may have changed: a script that threw, a report that could not be
+read, a job that could not start. Read the project with `premiere_inspect` and check the output files
+before you call again. A script that throws, an unreadable report and a job that cannot start are reported
+at once; the server does not wait out the timeout.

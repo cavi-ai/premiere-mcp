@@ -1,5 +1,6 @@
 """Failures that used to crash a call, hang it or return a wrong success, each shown through the real code."""
 
+import asyncio
 import json
 import os
 import shutil
@@ -11,10 +12,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from cavi_mcp_core.contracts import failure
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.server.mcpserver.exceptions import ToolError
 
 from cavi_premiere_mcp import clip_tools, host
+from cavi_premiere_mcp.server import mcp
 
 JSX = Path(host.__file__).with_name("jsx")
 
@@ -314,6 +318,83 @@ class RefusedBeforeAppTest(unittest.TestCase):
         with mock.patch.object(host, "relay", reached_the_app):
             with self.assertRaisesRegex(ValueError, "limit is 5000"):
                 host.markers_add(None, [{"time": 0}] * 5001, None, 60)
+
+
+def refusal(name, arguments):
+    """The error the server sends for a call that fails before it reaches Premiere, and its message."""
+    try:
+        asyncio.run(mcp.call_tool(name, arguments))
+    except ToolError as error:
+        return failure(name, error).structured_content["error"], str(error)
+    raise AssertionError(f"{name} succeeded")
+
+
+class ContractTest(unittest.TestCase):
+    """Arguments, missing inputs and an unapproved relay reach the caller as the error contract says."""
+
+    real_relay = staticmethod(host.relay)
+
+    def setUp(self):
+        patch = mock.patch.object(host, "relay", reached_the_app)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_an_argument_the_call_does_not_use_is_refused(self):
+        for name, arguments, text in [
+            ("premiere_project", {"action": "save", "path": "/x.prproj"}, "Not valid for action=save: path"),
+            ("premiere_project", {"action": "close", "close_others": True}, "Not valid for action=close: close_others"),
+            ("premiere_project", {"action": "open", "path": "/x.prproj", "replace": True},
+             "Not valid for action=open: replace"),
+            ("premiere_interchange", {"action": "xml", "path": "/a.xml", "bits": 24}, "Not valid for action=xml: bits"),
+            ("premiere_interchange", {"action": "import_xml", "path": "/a.xml", "replace": True},
+             "Not valid for action=import_xml: replace"),
+            ("premiere_markers_edit", {"action": "list", "index": 0}, "Not valid for action=list: index"),
+            ("premiere_markers_edit", {"action": "delete", "all": True, "name": "x"}, "Not valid for action=delete: name"),
+            ("premiere_bins", {"action": "create", "name": "B", "items": ["a"]}, "Not valid for action=create: items"),
+            ("premiere_bins", {"action": "rename", "name": "B", "new_name": "C", "force": True},
+             "Not valid for action=rename: force"),
+            ("premiere_clip_edit", {"position_index": 0, "enabled": False, "keep_linked": True},
+             "keep_linked needs remove"),
+            ("premiere_scene_detect", {"position_index": 0, "include_audio": True}, "include_audio needs apply=cuts"),
+            ("premiere_effect_set", {"position_index": 0, "component": "Opacity", "list": True,
+                                     "params": [{"name": "Opacity", "value": 50}]}, "list=true, not both"),
+        ]:
+            with self.subTest(name=name, arguments=arguments):
+                error, message = refusal(name, arguments)
+                self.assertIn(text, message)
+                self.assertEqual((error["code"], error["outcome"]), ("INVALID_ARGUMENT", "rejected"))
+
+    def test_a_missing_input_file_is_not_found(self):
+        for name, arguments in [("premiere_media_replace", {"item": "a", "path": "/nonexistent/x.mov"}),
+                                ("premiere_project", {"action": "open", "path": "/nonexistent/p.prproj"}),
+                                ("premiere_captions", {"file": "/nonexistent/c.srt"})]:
+            with self.subTest(name=name):
+                error, message = refusal(name, arguments)
+                self.assertIn("/nonexistent/", message)
+                self.assertEqual((error["code"], error["outcome"]), ("INPUT_NOT_FOUND", "rejected"))
+
+    def test_a_relay_bridge_never_ran_is_rejected_as_not_approved(self):
+        with tempfile.TemporaryDirectory() as box:
+            patches = [mock.patch.object(host, name, value) for name, value in (
+                ("relay", self.real_relay), ("MAILBOX", Path(box)), ("BRIDGE_PING", 0.2), ("bridge", lambda: Path("/b.app")),
+                ("premiere", lambda: Path("/p.app")), ("running", lambda app: [1]), ("start", lambda app: None),
+                ("bridge_age", lambda app: 900))]
+            for patch in patches:
+                patch.start()
+                self.addCleanup(patch.stop)
+            error, message = refusal("premiere_inspect", {})
+        self.assertIn("approve it in Bridge", message)
+        self.assertEqual((error["code"], error["outcome"]), ("RELAY_NOT_APPROVED", "rejected"))
+
+    def test_result_fields_a_tool_did_not_set_stay_off_the_wire(self):
+        with tempfile.TemporaryDirectory() as folder:
+            placed = Path(folder) / "placed.txt"
+            stub = f"var PLACED = {json.dumps(str(placed))};" + SHARED_NAMES
+            with mock.patch.object(host, "relay", node_relay(stub)):
+                reply = asyncio.run(mcp.call_tool("premiere_clip_place", {"item": "i1", "at": 0, "sequence": "s1"}))
+        self.assertFalse(reply.is_error)
+        self.assertEqual(reply.structured_content["clip"]["name"], "a.mp4")
+        self.assertNotIn("clips", reply.structured_content)
 
 
 class StatusTest(unittest.TestCase):

@@ -521,9 +521,11 @@ async def premiere_interchange(
                           Field(description="Export as FCP XML, AAF or OMF, or import an FCP XML.")],
         path: Annotated[str, Field(description="Absolute path of the file to write or import.")],
         replace: Annotated[bool, Field(description="Overwrite an existing file.")] = False,
-        audio_rate: Annotated[int, Field(ge=8000, le=192000, description="AAF and OMF audio sample rate in "
-                                                                         "Hz.")] = 48000,
-        bits: Annotated[Literal[16, 24], Field(description="AAF and OMF audio bit depth.")] = 16,
+        audio_rate: Annotated[Annotated[int, Field(ge=8000, le=192000)] | None,
+                              Field(description="AAF and OMF audio sample rate in Hz; 48000 when "
+                                                "omitted.")] = None,
+        bits: Annotated[Literal[16, 24] | None, Field(description="AAF and OMF audio bit depth; 16 when "
+                                                                  "omitted.")] = None,
         sequence: SequenceName = None, timeout: Timeout = 600) -> Interchange:
     """Export a sequence as FCP XML, AAF or OMF, or import an FCP XML into the project; the file or the
     new sequence is checked."""
