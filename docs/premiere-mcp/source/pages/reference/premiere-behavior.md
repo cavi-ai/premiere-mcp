@@ -74,13 +74,35 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
 20. `app.encoder.encodeSequence(sequence, path, preset, range, 1)` returns a job id and `startBatch()` runs
     it; right after Media Encoder launches the job is not accepted, so the tool waits for the launch. A 4 s
     ProRes in/out job finished in about 25 s.
+21. `overwriteClip` and `insertClip` at a time off the frame grid start the clip on the nearest frame (20 s
+    in a 23.976 fps sequence starts at 20.02). Source in and out points land on frames of the media (0.5 and
+    2.5 on 25 fps media read back 0.48 and 2.48).
+22. `Marker.setColorByIndex(index)` colours the marker it is called on (a second argument is ignored) and
+    `getColorByIndex()` reads it back. `setTypeAsChapter`, `setTypeAsSegmentation`, `setTypeAsComment` and
+    `setTypeAsWebLink(url, frameTarget)` return true and set `type` to Chapter, Segmentation, Comment and
+    WebLink; `getWebLinkURL` and `getWebLinkFrameTarget` read the link back.
+23. QE `removeEffects()` on a video clip removes its effects and keeps Motion and Opacity; on an audio clip it
+    returns true and the effects stay. QE `getComponentAt(n).remove()` removes that one effect from a video
+    or an audio clip. `remove(false, false)` on an item of `Track.transitions` removes the transition and
+    leaves the clips.
+24. QE `getClipPanComponent()` on an audio clip returns the `Panner` component with a `Pan` parameter. A QE
+    audio track's `getComponentAt(0)` is its `Track` component with `Volume` and `Mute`; the DOM audio track
+    has no volume. QE `setParamValue` takes the value as a string (`"30"`, `"0.5"`, `"true"`) and refuses a
+    number with `Illegal Parameter type`; Pan `"30"` reads back `30.00` and Volume `"0.5"` reads back `0.50`.
+25. Media Encoder answers BridgeTalk as target `ame`. `app.getEncoderHost()` has `getBatchEncoderStatus`
+    (`stopped`, `running`), `isBatchRunning`, `runBatch`, `pauseBatch` and `stopBatch`. `stopBatch()`
+    returned true and stopped an 11-minute 23.976 fps encode; the partial movie stayed on disk and no process
+    held it open.
+26. `Project.saveAs(path)` returns true, writes the project at `path`, opens it and closes the project at the
+    old path. The old file stays on disk and other open projects stay open.
 
 ## Tool behavior
 
 - A project item is addressed by its id (`nodeId`), its absolute media path or its name, and a sequence by
   its id (`sequenceID`) or its name; a reference that several answer to is refused with their ids.
-  `premiere_clip_place` and `premiere_clips_place` import a file that is not in the project and put the
-  item's source in and out back after placing.
+  `premiere_clip_place` imports a file that is not in the project, puts the item's source in and out back
+  after placing and reports each clip where it landed. `premiere_clip_copy` places the clip's own project
+  item, so a file imported twice is copied from the item the clip uses.
 - `premiere_clip_props`: `position` is pixels from the top left; `scale` and `opacity` are percent;
   `rotation` is degrees; `volume_db` is dB (0 is unity). `keyframes[].time` is seconds from the clip's
   start, and a property with keyframes ignores its static value.

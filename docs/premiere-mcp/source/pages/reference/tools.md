@@ -1,6 +1,6 @@
 # Tools
 
-The server registers 44 tools. This page lists every tool with its parameters, defaults and result
+The server registers 43 tools. This page lists every tool with its parameters, defaults and result
 fields. A test fails when a tool, a parameter, a default or a result field here differs from the
 registered catalog.
 
@@ -41,8 +41,7 @@ required.
 | `premiere_sequence_open` | write | 300 | Makes a sequence the active one. |
 | `premiere_sequence_set` | destructive | 300 | Changes settings, in/out points, nests, duplicates, renames or deletes a sequence. |
 | `premiere_tracks` | write | 300 | Adds tracks and sets mute, lock and target state. |
-| `premiere_clip_place` | write | 300 | Places a project item on a track. |
-| `premiere_clips_place` | write | 600 | Places many project items on one sequence in one job. |
+| `premiere_clip_place` | write | 300 | Places one project item, or many in one job, on a sequence. |
 | `premiere_clip_edit` | destructive | 300 | Trims, moves, enables, renames, links or removes a placed clip. |
 | `premiere_clip_copy` | destructive | 300 | Places another copy of a clip. |
 | `premiere_clip_slip` | destructive | 300 | Shows a different part of a clip's source in the same place. |
@@ -305,35 +304,26 @@ Returns `sequence`, `before`, `after`, `tracks`, `warnings`.
 
 ### `premiere_clip_place`
 
-Places a project item on a track at a time, with optional source in and out. A file that is not in the
-project is imported first.
+Places a project item on a track at a time, with optional source in and out, or many items with
+`clips` in one Premiere job, in list order. Give `item` and `at`, or `clips`. A file that is not in the
+project is imported first. With `clips`, every track and item is found, and files are imported, before
+the first clip is placed, so a missing track or item places nothing; an `insert` moves the clips after
+it, including clips placed earlier in the list, and each returned clip is read right after its own
+placement. The result has `clip` for `item` and `at`, and `clips` for `clips`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `item` | string | required | Id, media path or name. |
-| `at` | number | required | Timeline start in seconds. |
+| `item` | string | none | Id, media path or name. |
+| `at` | number | none | Timeline start in seconds. |
 | `kind` | `video`, `audio` | `"video"` | Track kind. |
 | `track` | integer | `0` | Track index. |
 | `in_point` | number | none | Source in point in seconds. |
 | `out_point` | number | none | Source out point in seconds. |
 | `mode` | `overwrite`, `insert` | `"overwrite"` | Replace what is there or push it right. |
+| `clips` | list of object | none | Up to 500 clips instead of `item` and `at`, each with `item`, `at` and any of `kind`, `track`, `in_point`, `out_point`, `mode`; a field an entry leaves out takes the call's value. |
 | `sequence` | string | none | The sequence. |
 
-Returns `sequence`, `clip`, `warnings`.
-
-### `premiere_clips_place`
-
-Places many project items on one sequence in one Premiere job, in list order. Every track and item is
-found, and files that are not in the project are imported, before the first clip is placed, so a
-missing track or item places nothing. An `insert` moves the clips after it, including clips placed
-earlier in the list; each returned clip is read right after its own placement.
-
-| Parameter | Type | Default | Meaning |
-|---|---|---|---|
-| `clips` | list of object | required | 1 to 500, each with `item`, `at` and any of `kind`, `track`, `in_point`, `out_point`, `mode`, as in `premiere_clip_place`. |
-| `sequence` | string | none | The sequence. |
-
-Returns `sequence`, `clips`, `warnings`.
+Returns `sequence`, `clip` or `clips`, `warnings`.
 
 ### `premiere_clip_edit`
 
@@ -362,7 +352,7 @@ Returns `sequence`, `clip`, `removed`, `note`, `warnings`.
 
 ### `premiere_clip_copy`
 
-Places another copy of a clip (same media, same source range) at `to_time`, optionally on another
+Places another copy of a clip (same project item, same source range) at `to_time`, optionally on another
 track of the same kind. The copy overwrites what is there and does not carry effects.
 
 | Parameter | Type | Default | Meaning |

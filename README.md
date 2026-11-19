@@ -83,8 +83,7 @@ See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for 
 | `premiere_sequence_open` | Makes a sequence the active one. |
 | `premiere_sequence_set` | Changes settings, in/out points, nests, duplicates, renames or deletes a sequence. |
 | `premiere_tracks` | Adds tracks and sets mute, lock and target state. |
-| `premiere_clip_place` | Places a project item on a track. |
-| `premiere_clips_place` | Places many project items on one sequence in one job. |
+| `premiere_clip_place` | Places one project item, or many in one job, on a sequence. |
 | `premiere_clip_edit` | Trims, moves, enables, renames, links or removes a placed clip. |
 | `premiere_clip_copy` | Places another copy of a clip. |
 | `premiere_clip_slip` | Shows a different part of a clip's source in the same place. |

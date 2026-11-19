@@ -588,6 +588,20 @@ def clip_place(sequence, item, kind, track, at, in_point, out_point, mode, timeo
     return result
 
 
+def place(sequence, item, at, kind, track, in_point, out_point, mode, clips, timeout):
+    """One clip from item and at, or every entry of clips in one job; an entry's missing kind, track, in_point,
+    out_point and mode are the call's own."""
+    if clips:
+        if item is not None or at is not None:
+            raise ValueError("Give item and at, or clips, not both")
+        shared = {"kind": kind, "track": track, "in_point": in_point, "out_point": out_point, "mode": mode}
+        return clips_place(sequence, [{**shared, **{k: v for k, v in clip.items() if v is not None}}
+                                      for clip in clips], timeout)
+    if item is None or at is None:
+        raise ValueError("Give item and at, or clips")
+    return clip_place(sequence, item, kind, track, at, in_point, out_point, mode, timeout)
+
+
 def clip_props(sequence, kind, track, at, position_index, props, keyframes, timeout):
     """Motion, opacity and volume values on a placed clip; props and keyframes are keyed by property."""
     if (at is None) == (position_index is None):

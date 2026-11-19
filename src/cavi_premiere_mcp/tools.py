@@ -49,7 +49,6 @@ from .models import (
     Opened,
     Param,
     Placed,
-    PlacedClips,
     Placement,
     Presets,
     Project,
@@ -183,8 +182,8 @@ async def premiere_sequence_open(
 
 @mcp.tool(annotations=WRITES)
 async def premiere_clip_place(
-        item: Annotated[str, Field(description="Project item to place: media path, name or id.")],
-        at: Annotated[Seconds, Field(description="Sequence time where the clip starts, in seconds.")],
+        item: Annotated[str | None, Field(description="Project item to place: media path, name or id.")] = None,
+        at: Annotated[Seconds | None, Field(description="Sequence time where the clip starts, in seconds.")] = None,
         kind: Annotated[Kind, Field(description="Track type to place on.")] = "video",
         track: Annotated[Track, Field(description="0-based track index; 0 is V1 or A1.")] = 0,
         in_point: Annotated[Seconds | None, Field(description="Source in point, in seconds.")] = None,
@@ -192,20 +191,15 @@ async def premiere_clip_place(
         mode: Annotated[Literal["overwrite", "insert"], Field(description="overwrite replaces what is there; "
                                                                           "insert pushes later clips right.")]
         = "overwrite",
+        clips: Annotated[Annotated[list[Placement], Field(max_length=host.MAX_PLACEMENTS)] | None,
+                         Field(description="Several clips instead of item and at, placed in one job in this "
+                                           "order; each needs item and at, and takes the other fields from the "
+                                           "call when it leaves them out.")] = None,
         sequence: SequenceName = None, timeout: Timeout = 300) -> Placed:
-    """Place a project item on a track at a time; a file not yet imported is imported first."""
-    return await asyncio.to_thread(host.clip_place, sequence, item, kind, track, at, in_point, out_point, mode,
-                                   timeout)
-
-
-@mcp.tool(annotations=WRITES)
-async def premiere_clips_place(
-        clips: Annotated[list[Placement], Field(min_length=1, max_length=host.MAX_PLACEMENTS,
-                                                description="Clips to place, in this order.")],
-        sequence: SequenceName = None, timeout: Timeout = 600) -> PlacedClips:
-    """Place many project items on one sequence in one Premiere job. Every track and item is found, and
-    files not yet imported are imported, before the first clip is placed."""
-    return await asyncio.to_thread(host.clips_place, sequence, [c.model_dump() for c in clips], timeout)
+    """Place a project item on a track at a time, or many with clips in one job; a file not yet imported is
+    imported first. With clips, every track and item is found before the first clip is placed."""
+    return await asyncio.to_thread(host.place, sequence, item, at, kind, track, in_point, out_point, mode,
+                                   [c.model_dump() for c in clips or []], timeout)
 
 
 @mcp.tool(annotations=WRITES)

@@ -183,6 +183,38 @@ class AddressingTest(unittest.TestCase):
                  "mode": "overwrite"}], 60)
         self.assertEqual(self.placements(), [])
 
+    def test_clip_place_with_clips_takes_missing_fields_from_the_call(self):
+        def entry(item, at, track=None):
+            return {"item": item, "at": at, "kind": None, "track": track, "in_point": None, "out_point": None,
+                    "mode": None}
+
+        with self.assertRaisesRegex(RuntimeError, "No video track 2"):
+            host.place("s1", None, None, "video", 2, None, None, "overwrite", [entry("i1", 0.0)], 60)
+        placed = host.place("s1", None, None, "video", 2, None, None, "overwrite",
+                            [entry("i1", 0.0, 0), entry("i2", 3.0, 0)], 60)
+        self.assertEqual((self.jobs, [c["name"] for c in placed["clips"]]), (2, ["a.mp4", "b.mp4"]))
+        self.assertEqual(self.placements(), ["Main a.mp4 0", "Main b.mp4 3"])
+        with self.assertRaisesRegex(ValueError, "Give item and at, or clips"):
+            host.place(None, "i1", None, "video", 0, None, None, "overwrite", [], 60)
+
+    def test_a_copy_places_the_clips_own_item_when_its_file_is_imported_twice(self):
+        placed_take = ("main.videoTracks[0].clips = {numItems: 1, 0: {name: 'b take', start: {seconds: 0}, "
+                       "end: {seconds: 3}, inPoint: {seconds: 0}, outPoint: {seconds: 3}, projectItem: copy}};")
+        stub = f"var PLACED = {json.dumps(str(self.placed))};" + SHARED_NAMES + placed_take
+        with mock.patch.object(host, "relay", node_relay(stub)):
+            copied = clip_tools.copy("s1", "video", 0, 1.0, None, 5.0, None, 60)
+        self.assertEqual((copied["clip"]["name"], copied["clip"]["item_id"]), ("b take", "i3"))
+        self.assertEqual(self.placements(), ["Main b take 5"])
+
+    def test_a_clip_placed_off_the_frame_grid_is_found_on_the_frame_it_landed(self):
+        snapped = ("var overwrite = main.videoTracks[0].overwriteClip; main.videoTracks[0].overwriteClip = "
+                   "function (source, at) { overwrite.call(this, source, Math.round(at * 25) / 25); };")
+        stub = f"var PLACED = {json.dumps(str(self.placed))};" + SHARED_NAMES + snapped
+        with mock.patch.object(host, "relay", node_relay(stub)):
+            placed = host.clip_place("s1", "i1", "video", 0, 5.015, None, None, "overwrite", 60)
+        self.assertEqual((placed["clip"]["name"], placed["clip"]["start"]), ("a.mp4", 5.0))
+        self.assertEqual(self.placements(), ["Main a.mp4 5"])
+
     def test_sequence_open_makes_the_sequence_active(self):
         self.assertEqual(host.sequence_open("s2", 60)["id"], "s2")
 

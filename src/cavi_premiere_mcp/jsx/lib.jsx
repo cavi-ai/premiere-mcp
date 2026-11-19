@@ -99,6 +99,12 @@ function mediaPath(item) {
     }
 }
 
+function clipInfo(clip, position) {
+    var item = clip.projectItem || null;
+    return {position: position, name: clip.name, item_id: item ? item.nodeId : null, start: secs(clip.start),
+        end: secs(clip.end), in_point: secs(clip.inPoint), out_point: secs(clip.outPoint), media_path: mediaPath(item)};
+}
+
 function isBin(item) {
     return item.type === ProjectItemType.BIN || item.type === ProjectItemType.ROOT;
 }
