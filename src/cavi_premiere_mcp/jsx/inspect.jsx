@@ -55,11 +55,6 @@ function itemInfo(child, binPath, sequenceIds) {
     return info;
 }
 
-function clipInfo(clip, position) {
-    return {position: position, name: clip.name, start: secs(clip.start), end: secs(clip.end),
-        in_point: secs(clip.inPoint), out_point: secs(clip.outPoint), media_path: mediaPath(clip.projectItem)};
-}
-
 function laneInfo(lane, index) {
     var info = {index: index, name: lane.name, clips: [], transitions: []};
     each(lane.clips, function (clip, i) {

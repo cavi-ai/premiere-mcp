@@ -6,7 +6,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ### Added
 
-- `premiere_clips_place` places many project items on one sequence in one job; a missing track or item places nothing.
+- `premiere_clip_place` takes `clips` to place many project items on one sequence in one job; an entry needs `item` and `at` and takes its other fields from the call; a missing track or item places nothing.
 - `premiere_sequence_open` makes a sequence the active one.
 - `sequence` takes a sequence's id as well as its name; project items take their id as well as a media path or name.
 - `premiere_inspect` returns each item's `id` and each sequence's `active`, and takes `items` and `tracks` to leave those parts out.
@@ -23,6 +23,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_cut` rounds a time half a frame from the grid up, as the scripts do.
 - `premiere_cut` closes only a project open at its own path; other open projects stay open.
 - `premiere_clip_copy` and `premiere_fade` without `sequence` act on the active sequence, not the project's first.
+- `premiere_clip_copy` places the clip's own project item, so a clip whose file is imported twice can be copied.
+- `premiere_clip_place` reports a clip placed off the frame grid on the frame where it landed instead of failing after placing it.
 - `premiere_cut`, `premiere_export` and `premiere_encode` with `replace` keep the old files when the ProRes preset, `ffprobe` or Media Encoder is missing.
 - `premiere_export` and `premiere_encode` count a master whose container keeps no frame count by its packets, and a master without video by its audio duration; a master that cannot be counted is reported `OUTCOME_UNKNOWN`.
 

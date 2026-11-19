@@ -1,8 +1,9 @@
 // Place project items (or importable files) on the tracks of one sequence, in list order. Input:
 // {sequence, clips: [{item, kind (video|audio), track, at, in_point, out_point, mode (overwrite|insert)}]}.
 // Seconds. Every track and item is found, and files no item holds are imported, before the first placement.
-function place(lane, source, spec) {
-    var was = {in_point: secs(source.getInPoint()), out_point: secs(source.getOutPoint())}, placed = null;
+function place(lane, source, spec, frame) {
+    var was = {in_point: secs(source.getInPoint()), out_point: secs(source.getOutPoint())}, placed = null,
+        nearest = frame / 2 + 0.001;
     if (given(spec.in_point)) {
         source.setInPoint(spec.in_point, 4);
     }
@@ -20,10 +21,12 @@ function place(lane, source, spec) {
         source.setInPoint(was.in_point, 4);
         source.setOutPoint(was.out_point, 4);
     }
+    // Premiere moves the start to the nearest frame.
     each(lane.clips, function (clip, i) {
-        if (!placed && Math.abs(secs(clip.start) - spec.at) < 0.001) {
-            placed = {position: i, name: clip.name, start: secs(clip.start), end: secs(clip.end),
-                in_point: secs(clip.inPoint), out_point: secs(clip.outPoint), media_path: mediaPath(clip.projectItem)};
+        var off = Math.abs(secs(clip.start) - spec.at);
+        if (off < nearest) {
+            nearest = off;
+            placed = clipInfo(clip, i);
         }
     });
     if (!placed) {
@@ -53,6 +56,6 @@ function run(A, report) {
     report.sequence = sequence.name;
     report.clips = [];
     for (i = 0; i < A.clips.length; i++) {
-        report.clips.push(place(lanes[i], sources[i], A.clips[i]));
+        report.clips.push(place(lanes[i], sources[i], A.clips[i], 1 / frameRate(sequence)));
     }
 }

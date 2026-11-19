@@ -91,7 +91,7 @@ def copy(sequence, kind, track, at, position_index, to_time, to_track, timeout):
     clip = clip_at(host.acted_on(sequence, timeout), kind, track, at, position_index)
     if not clip.get("media_path"):
         raise ValueError(f"{clip['name']} has no media to copy")
-    return host.clip_place(sequence, clip["media_path"], kind, track if to_track is None else to_track,
+    return host.clip_place(sequence, clip.get("item_id") or clip["media_path"], kind, track if to_track is None else to_track,
                            to_time, clip["in_point"], clip["out_point"], "overwrite", timeout)
 
 

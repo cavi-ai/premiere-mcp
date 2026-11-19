@@ -109,6 +109,7 @@ class Item(BaseModel):
 class TimelineClip(BaseModel):
     position: int
     name: str
+    item_id: str | None = None
     start: float
     end: float
     in_point: float
@@ -178,24 +179,24 @@ class NewSequence(Result):
 
 
 class Placed(Result):
+    """One placed clip in clip, or with a clips list every placed clip in clips."""
+
     sequence: str
-    clip: TimelineClip
+    clip: TimelineClip | None = None
+    clips: list[TimelineClip] | None = None
 
 
 class Placement(BaseModel):
+    """One clip of a clips list; a field left out takes the call's value."""
+
     model_config = ConfigDict(extra="forbid")
     item: str
     at: Seconds
-    kind: Kind = "video"
-    track: Track = 0
+    kind: Kind | None = None
+    track: Track | None = None
     in_point: Seconds | None = None
     out_point: Seconds | None = None
-    mode: Literal["overwrite", "insert"] = "overwrite"
-
-
-class PlacedClips(Result):
-    sequence: str
-    clips: list[TimelineClip]
+    mode: Literal["overwrite", "insert"] | None = None
 
 
 class Opened(Result):
