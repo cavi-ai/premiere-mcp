@@ -1,8 +1,8 @@
 # Cavi Premiere MCP
 
-![An illustrated penguin editor arranging film of a coastal journey](assets/premiere-mcp-hero.png)
-
 ## You call the shots.
+
+![An illustrated penguin editor arranging film of a coastal journey](assets/premiere-mcp-hero.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![PyPI weekly downloads](https://img.shields.io/pypi/dw/cavi-premiere-mcp?label=PyPI%20downloads%2Fweek)](https://pypi.org/project/cavi-premiere-mcp/)
 
