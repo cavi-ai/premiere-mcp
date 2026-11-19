@@ -2,10 +2,10 @@
 // splits clips at both times on every track; the clips inside are removed. extract also moves every later
 // clip of every unlocked track left by the range length. Locked tracks are left untouched. Seconds.
 function run(A, report) {
-    var sequence = findSequence(A.sequence), fps = frameRate(sequence), q, i, j, lane, lanesList = [],
+    var sequence = findSequence(A.sequence), q, i, j, lane, lanesList = [],
         doomed = [], later = [], removed = 0, moved = 0, length = A.end - A.start, t;
-    A.start = Math.round(A.start * fps) / fps;
-    A.end = Math.round(A.end * fps) / fps;
+    A.start = snap(A.start, sequence);
+    A.end = snap(A.end, sequence);
     length = A.end - A.start;
     if (length <= 0) {
         fail("The range is shorter than one frame");
@@ -29,8 +29,8 @@ function run(A, report) {
         fail("The range " + A.start + "-" + A.end + " s is past the end of the sequence (" + endSeconds(sequence) + " s)");
     }
     for (i = 0; i < lanesList.length; i++) {
-        lanesList[i].q.razor(tcOf(A.start, fps));
-        lanesList[i].q.razor(tcOf(A.end, fps));
+        lanesList[i].q.razor(tcOf(A.start, sequence));
+        lanesList[i].q.razor(tcOf(A.end, sequence));
     }
     for (i = 0; i < lanesList.length; i++) {
         lane = lanesList[i];

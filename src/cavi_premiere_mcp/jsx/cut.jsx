@@ -11,11 +11,6 @@ function sourceItem(path) {
     fail("Imported item not found: " + name);
 }
 
-function cutTimecode(frames, fps) {
-    var f = frames % fps, s = Math.floor(frames / fps);
-    return "00:00:" + (s < 10 ? "0" : "") + s + ":" + (f < 10 ? "0" : "") + f;
-}
-
 function clear(lane) {
     while (lane.clips.numItems > 0) {
         lane.clips[0].remove(false, false);
@@ -75,7 +70,7 @@ function run(A, report) {
         try {
             effect = qe.project.getVideoTransitionByName(clip.transition);
             first = index === 1;
-            entry.addTransition(effect, true, cutTimecode(clip.frames, A.fps), cutTimecode(0, A.fps),
+            entry.addTransition(effect, true, frameCode(clip.frames, A.fps, 0), frameCode(0, A.fps, 0),
                 first ? 0 : 0.5, first, true);
             report.transitions.push("clip " + index + ": " + clip.transition + " " + clip.frames + "f");
         } catch (error) {

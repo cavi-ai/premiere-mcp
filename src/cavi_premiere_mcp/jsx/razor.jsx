@@ -1,7 +1,7 @@
 // Split clips with the QE razor at one or more times. Input: {sequence, times, kind (video|audio|all),
 // track}. Every track of the kind is cut when track is null. Seconds, snapped to the frame grid.
 function run(A, report) {
-    var sequence = findSequence(A.sequence), fps = frameRate(sequence), lanes = [], i, j,
+    var sequence = findSequence(A.sequence), lanes = [], i, j,
         before = 0, after = 0;
     app.enableQE();
     var q = qe.project.getActiveSequence();
@@ -39,7 +39,7 @@ function run(A, report) {
     before = clips();
     for (i = 0; i < A.times.length; i++) {
         for (j = 0; j < lanes.length; j++) {
-            lanes[j].razor(tcOf(A.times[i], fps));
+            lanes[j].razor(tcOf(A.times[i], sequence));
         }
     }
     after = clips();

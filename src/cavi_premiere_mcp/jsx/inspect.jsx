@@ -1,8 +1,17 @@
 // Describe the open project: bins, project items, sequences with every track's clips and
 // transitions, and sequence markers. Input: {sequence} (a name; every sequence when empty).
-function seconds(code, fps) {
-    var p = String(code).split(/[:;]/);
-    return p.length === 4 && fps ? Number(p[0]) * 3600 + Number(p[1]) * 60 + Number(p[2]) + Number(p[3]) / fps : null;
+// Seconds of a media timecode at a media rate such as 29.97: its frames are counted at the whole timecode
+// base (30) and last 1001/30000 s each; a ";" timecode at 29.97 or 59.94 is drop frame.
+function seconds(code, rate) {
+    var p = String(code).split(/[:;]/), base = Math.round(rate),
+        ntsc = Math.abs(rate - base * 1000 / 1001) < 0.01,
+        drop = ntsc && (base === 30 || base === 60) && String(code).indexOf(";") >= 0 ? base / 15 : 0, minutes;
+    if (p.length !== 4 || !rate) {
+        return null;
+    }
+    minutes = Number(p[0]) * 60 + Number(p[1]);
+    return ((minutes * 60 + Number(p[2])) * base + Number(p[3]) - drop * (minutes - Math.floor(minutes / 10)))
+        / (ntsc ? base * 1000 / 1001 : rate);
 }
 
 function itemInfo(child, binPath, sequenceIds) {

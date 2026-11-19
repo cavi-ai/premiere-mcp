@@ -27,6 +27,10 @@ class PlanTest(unittest.TestCase):
         self.assertEqual((planned[0]["transition"], planned[1]["transition"]), (None, "Dip to Black"))
         self.assertEqual((planned[1]["frames"], end), (12, 90))
 
+    def test_half_frame_times_round_up_like_the_scripts(self):
+        planned, _ = host.plan([self.clip("a.mov", 0.1, 0, 1)], 25)
+        self.assertEqual(planned[0]["start"], 0.12)
+
     def test_ntsc_rate_keeps_whole_frames(self):
         planned, end = host.plan([self.clip("a.mov", 0, 0, 1.001)], Fraction(30000, 1001))
         self.assertEqual((planned[0]["out_point"], end), (1.001, 30))

@@ -345,7 +345,9 @@ def plan(clips, fps):
             raise ValueError(f"Clip {number}: no file at {file}")
         if names.setdefault(file.name, file) != file:
             raise ValueError(f"Clip {number}: another clip file is also named {file.name}")
-        start, first, last = (round(clip[key] * fps) for key in ("start", "in_point", "out_point"))
+        # Half a frame rounds up, as Math.round does in the scripts.
+        start, first, last = (math.floor(Fraction(clip[key]) * fps + Fraction(1, 2))
+                              for key in ("start", "in_point", "out_point"))
         if last <= first:
             raise ValueError(f"Clip {number}: out_point must be at least one frame after in_point")
         if start < end:
