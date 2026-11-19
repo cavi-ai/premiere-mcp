@@ -24,6 +24,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - Calls drive Premiere Pro one at a time across server processes, and a call that sends several jobs (`premiere_fade`, `premiere_clip_copy`, `premiere_color`, `premiere_scene_detect`, `premiere_media_replace`) holds Premiere Pro until its last job; another call waiting for its whole `timeout` is `PREMIERE_BUSY`.
 - `timeout` bounds the whole call; an export could wait the timeout twice plus 330 s.
 - The relay mailbox is set to mode `0700` before each job.
+- `premiere_clip_edit` `remove` `ripple` is refused when the later clips of a track would move onto a clip that stays there; it used to overwrite that clip.
+- `premiere_clip_props` static `opacity` and `volume_db` take the keyframe ranges, 0 to 100 and -96 to 15.
 - `premiere_razor`, `premiere_range_remove`, `premiere_clip_speed` and `premiere_frame_export` address the frame at the sequence's exact rate on 23.976, 29.97 and 59.94 fps sequences, in drop-frame timecode on a drop-frame sequence.
 - `premiere_inspect` durations of 23.976, 29.97 and 59.94 fps media count the timecode's frames, drop frame included.
 - `premiere_sequence_set` sets a frame rate such as 12.5 exactly; a rate within 0.01 of n×1000/1001, such as 29.97, becomes that NTSC rate.

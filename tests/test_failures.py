@@ -365,6 +365,13 @@ class ContractTest(unittest.TestCase):
                 self.assertIn(text, message)
                 self.assertEqual((error["code"], error["outcome"]), ("INVALID_ARGUMENT", "rejected"))
 
+    def test_static_opacity_and_volume_take_the_keyframe_ranges(self):
+        for arguments in ({"opacity": 150}, {"opacity": -1}, {"volume_db": 40}, {"volume_db": -200}):
+            with self.subTest(arguments=arguments):
+                error, message = refusal("premiere_clip_props", {"position_index": 0, **arguments})
+                self.assertIn(next(iter(arguments)), message)
+                self.assertEqual((error["code"], error["outcome"]), ("INVALID_ARGUMENT", "rejected"))
+
     def test_a_missing_input_file_is_not_found(self):
         for name, arguments in [("premiere_media_replace", {"item": "a", "path": "/nonexistent/x.mov"}),
                                 ("premiere_project", {"action": "open", "path": "/nonexistent/p.prproj"}),
@@ -423,6 +430,67 @@ class OneCallAtATimeTest(unittest.TestCase):
                 worker.join()
         self.assertEqual(len(jobs), 4)
         self.assertEqual((jobs[0][1], jobs[2][1]), (jobs[1][1], jobs[3][1]), jobs)
+
+
+RIPPLE = """
+function Time() { this.ticks = "0"; }
+function lane(name, clips) {
+    var made = {name: name, items: [], isLocked: function () { return false; }};
+    Object.defineProperty(made, "clips", {get: function () {
+        var list = {numItems: made.items.length}, i;
+        for (i = 0; i < made.items.length; i++) { list[i] = made.items[i]; }
+        return list;
+    }});
+    clips.forEach(function (c) {
+        made.items.push({name: c[0], nodeId: c[0], start: {seconds: c[1]}, end: {seconds: c[2]},
+            inPoint: {seconds: 0}, outPoint: {seconds: c[2] - c[1]}, disabled: false,
+            getLinkedItems: function () { return null; },
+            remove: function () {
+                require("fs").appendFileSync(EDITS, "remove " + this.name + "\\n");
+                made.items.splice(made.items.indexOf(this), 1);
+            },
+            move: function (t) {
+                var by = Number(t.ticks) / 254016000000;
+                require("fs").appendFileSync(EDITS, "move " + this.name + " " + by + "\\n");
+                this.start = {seconds: this.start.seconds + by};
+                this.end = {seconds: this.end.seconds + by};
+            }});
+    });
+    return made;
+}
+var main = {name: "Main", sequenceID: "s1", projectItem: {nodeId: "p1"}, timebase: "10160640000", end: "0",
+    videoTracks: {numTracks: 2, 0: lane("V1", [["A", 0, 2], ["B", 2, 4], ["C", 4, 6]]), 1: lane("V2", V2)},
+    audioTracks: {numTracks: 0}};
+var app = {project: {path: "/p.prproj", rootItem: {type: 2, children: {numItems: 0}},
+    sequences: {numSequences: 1, 0: main}, activeSequence: main, openSequence: function () {}}};
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class RippleTest(unittest.TestCase):
+    """A ripple remove shifts the later clips of every unlocked track by the removed clip's length."""
+
+    def remove_b(self, v2):
+        with tempfile.TemporaryDirectory() as folder:
+            edits = Path(folder) / "edits.txt"
+            edits.write_text("")
+            stub = f"var EDITS = {json.dumps(str(edits))}, V2 = {json.dumps(v2)};" + RIPPLE
+            with mock.patch.object(host, "relay", node_relay(stub)):
+                try:
+                    return host.clip_edit("s1", "video", 0, None, None, "B", {"remove": "ripple"}, 60), \
+                        edits.read_text().splitlines()
+                except RuntimeError as error:
+                    return str(error), edits.read_text().splitlines()
+
+    def test_a_ripple_that_would_overlap_a_clip_on_another_track_is_refused(self):
+        refused, edits = self.remove_b([["X", 0, 5], ["Y", 5, 8]])
+        self.assertIn("would move Y onto X", refused)
+        self.assertEqual(edits, [])
+
+    def test_a_ripple_with_room_on_every_track_moves_the_later_clips(self):
+        done, edits = self.remove_b([["X", 0, 3], ["Y", 6, 8]])
+        self.assertEqual(done["removed"]["name"], "B")
+        self.assertEqual(edits, ["remove B", "move C -2", "move Y -2"])
 
 
 class MailboxTest(unittest.TestCase):
