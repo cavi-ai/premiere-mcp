@@ -501,19 +501,24 @@ function place(sequence, lane, source, spec) {
 
 // Seconds covered by an export range: the whole sequence, its in/out points or its work area.
 function rangeSpan(sequence, range) {
-    var from, to;
+    var from, to, span;
     if (range === "in_out") {
         from = sequence.getInPointAsTime();
         to = sequence.getOutPointAsTime();
         if (Number(from.ticks) < 0 || Number(to.ticks) < 0) {
             fail("The sequence has no in and out points");
         }
-        return secs(to) - secs(from);
+        span = secs(to) - secs(from);
+    } else if (range === "work_area") {
+        span = Number(sequence.getWorkAreaOutPoint()) - Number(sequence.getWorkAreaInPoint());
+    } else {
+        span = endSeconds(sequence);
     }
-    if (range === "work_area") {
-        return Number(sequence.getWorkAreaOutPoint()) - Number(sequence.getWorkAreaInPoint());
+    // An empty range writes no file, so the caller would wait for one until its timeout.
+    if (span <= 0) {
+        fail("Nothing to export: the " + range + " range of " + sequence.name + " is empty");
     }
-    return endSeconds(sequence);
+    return span;
 }
 
 // The components of a clip with their parameters: {name, index, params: [{name, index, value, keyed}]}.

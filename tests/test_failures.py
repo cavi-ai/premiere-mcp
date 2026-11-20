@@ -560,6 +560,43 @@ class BatchTimelineTest(unittest.TestCase):
                 timeline.range_remove("s1", 1, None, "extract", 60)
 
 
+ENCODER = """
+var handlers = {};
+var main = {name: "Main", sequenceID: "s1", projectItem: {nodeId: "p1"}, timebase: "10160640000",
+    end: String(END * 254016000000), videoTracks: {numTracks: 0}, audioTracks: {numTracks: 0}};
+var app = {project: {path: "/p.prproj", save: function () {}, sequences: {numSequences: 1, 0: main},
+        activeSequence: main, openSequence: function () {}},
+    encoder: {ENCODE_ENTIRE: 0, ENCODE_IN_TO_OUT: 1, ENCODE_WORKAREA: 2, launchEncoder: function () {},
+        bind: function (name, handler) { handlers[name] = handler; },
+        encodeSequence: function () { return "J1"; },
+        startBatch: function () {
+            if (handlers.onEncoderJobError) { handlers.onEncoderJobError("J1", "Encoding error (9007)"); }
+        }}};
+"""
+
+
+@unittest.skipUnless(shutil.which("node") and shutil.which("ffprobe"), "node and ffprobe are required")
+class EncodeTest(unittest.TestCase):
+    """An encode that Media Encoder fails, or that has nothing to encode, ends without waiting for the file."""
+
+    def encode(self, end):
+        with tempfile.TemporaryDirectory() as folder:
+            preset = Path(folder) / "p.epr"
+            preset.write_text("")
+            with mock.patch.object(host, "relay", node_relay(f"var END = {end};" + ENCODER)), \
+                    mock.patch.object(host, "launch_encoder", lambda *_: None):
+                with self.assertRaises(RuntimeError) as failed:
+                    host.render("encode", None, Path(folder) / "m.mov", preset, "entire", False, 5)
+        return str(failed.exception)
+
+    def test_a_job_media_encoder_fails_ends_the_call_with_its_message(self):
+        self.assertIn("Media Encoder could not encode", self.encode(3))
+        self.assertIn("Encoding error (9007)", self.encode(3))
+
+    def test_an_empty_sequence_is_refused(self):
+        self.assertIn("Nothing to export: the entire range of Main is empty", self.encode(0))
+
+
 MARKERS = """
 function log(line) { require("fs").appendFileSync(EDITS, line + "\\n"); }
 function Marker(time) {

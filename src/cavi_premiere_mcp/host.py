@@ -21,7 +21,6 @@ from cavi_mcp_core.server import need, reject_foreign
 
 JSX = Path(__file__).with_name("jsx")
 READY_TIMEOUT = 300
-ENCODER_SETTLE = 40
 BRIDGE_PING = 30
 BRIDGE_LAUNCH = 60
 # Seconds after Bridge starts during which a silent relay means Bridge is still loading its startup scripts.
@@ -344,19 +343,22 @@ def written(report, before):
         return None
 
 
-def finish(body, report, master, timeout):
+def finish(body, report, master, timeout, failure=None):
     """Run a job that writes a master and a report, and judge it by those files.
 
     The relay can answer "timed out" while Premiere keeps exporting, so its answer only starts the wait:
-    the job is done when its report exists and no process holds the master open.
+    the job is done when its report exists and no process holds the master open. A job that writes the
+    failure file has failed, and the wait ends.
     """
     deadline = time.monotonic() + timeout
     before = fingerprint(report)
     try:
         answer = relay(body, left(deadline, 1))
-    except TimeoutError as failure:  # the job's answer never came; the export may still run
-        answer = f"{type(failure).__name__}: {failure}"
+    except TimeoutError as timed_out:  # the job's answer never came; the export may still run
+        answer = f"{type(timed_out).__name__}: {timed_out}"
     while True:
+        if failure and failure.is_file():
+            raise RuntimeError(f"Media Encoder could not encode {master}: {failure.read_text(encoding='utf-8')}")
         result = written(report, before)
         if result and (result["errors"] or (master.is_file() and not held(master))):
             break
@@ -952,15 +954,13 @@ def caption_preset(preset, on, folder):
     return copy
 
 
-def launch_encoder():
-    """Start Media Encoder when it is not running and give it time to accept jobs."""
+def launch_encoder(timeout):
+    """Start Media Encoder when it is not running and wait until it answers scripts; a job queued before that
+    is not accepted."""
     app = media_encoder()
     if not running(app):
         start(app)
-        deadline = time.monotonic() + 120
-        while not running(app) and time.monotonic() < deadline:
-            time.sleep(2)
-        time.sleep(ENCODER_SETTLE)
+        relay("'ready'", timeout, target="ame")
 
 
 def render(tool, sequence, master, preset, range_, replace, timeout, burn_captions=None):
@@ -969,6 +969,7 @@ def render(tool, sequence, master, preset, range_, replace, timeout, burn_captio
     Every input is checked before Premiere or Media Encoder is touched, and an existing master is deleted
     only once nothing is left that can refuse the call.
     """
+    deadline = time.monotonic() + timeout
     if range_ not in ("entire", "in_out", "work_area"):
         raise ValueError(f"range is entire, in_out or work_area: {range_}")
     master = absolute(master)
@@ -977,17 +978,17 @@ def render(tool, sequence, master, preset, range_, replace, timeout, burn_captio
     preset = Path(resolve_preset("export", preset) if preset else prores_preset())
     ffprobe()
     if tool == "encode":
-        launch_encoder()
+        launch_encoder(timeout)
     with tempfile.TemporaryDirectory(prefix="premiere-render-") as folder:
         if burn_captions is not None:
             preset = caption_preset(preset, burn_captions, folder)
         master.parent.mkdir(parents=True, exist_ok=True)
         if master.exists():
             master.unlink()
-        report = Path(folder) / "report.json"
+        report, failure = Path(folder) / "report.json", Path(folder) / "failure.txt"
         args = {"sequence": sequence, "master": str(master), "preset": str(preset), "range": range_,
-                "report": str(report)}
-        result = finish(tool_script(tool, args), report, master, timeout)
+                "report": str(report), "failure": str(failure)}
+        result = finish(tool_script(tool, args), report, master, left(deadline, 1), failure)
     frames = master_frames(master, result["fps"])
     expected = round(result["span"] * result["fps"])
     return {"sequence": result["sequence"], "master": str(master), "fps": result["fps"], "frames": frames,

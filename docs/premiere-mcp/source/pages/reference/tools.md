@@ -733,7 +733,7 @@ Returns `sequence`, `master`, `fps`, `frames`, `expected_frames`, `complete`, `w
 
 Queues a sequence in Adobe Media Encoder, started when needed, and starts the batch. Premiere Pro
 stays free; completion is judged by the output file, no process holding it open and the `ffprobe`
-frame count.
+frame count. A job Media Encoder fails ends the call with its message.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
