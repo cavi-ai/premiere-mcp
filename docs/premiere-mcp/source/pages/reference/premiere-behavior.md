@@ -1,7 +1,7 @@
 # Premiere Pro behavior
 
 Behavior that the tools depend on and that Adobe does not document, measured with Premiere Pro 2026 and
-Adobe Bridge 2026 on macOS. Each item says what was observed.
+2027 and Adobe Bridge 2026 and 2027 on macOS. Each item says what was observed.
 
 ## Scripting interface
 

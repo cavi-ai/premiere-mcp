@@ -13,7 +13,8 @@ Bring your own footage and licensed Adobe applications. The server connects to P
 ## Install
 
 Requires macOS, Premiere Pro 2026 or later, Adobe Bridge 2026 or later (the script relay), FFmpeg
-(`ffprobe`) and Python 3.15 or later with [uv](https://docs.astral.sh/uv/). You supply your own licensed Adobe
+(`ffprobe` and `ffmpeg`) and Python 3.15 or later with [uv](https://docs.astral.sh/uv/). `premiere_transcript`
+also needs openai-whisper, or mlx-audio for a local model folder. You supply your own licensed Adobe
 applications.
 
 ```sh
@@ -52,11 +53,11 @@ This example cuts three shots and a score into a Premiere project with dissolves
 
 | Work | In Premiere Pro |
 |---|---|
-| Organize | Import media, arrange bins and find clips. |
-| Edit | Create sequences, place and trim clips, and work with tracks. |
-| Refine | Add transitions, adjust color and animate clip properties. |
-| Review | Inspect the project and export still frames. |
-| Deliver | Export a sequence or queue it in Media Encoder. |
+| Organize | Import media and After Effects compositions, arrange bins and find clips. |
+| Edit | Create sequences, place and trim clips, work with tracks, and cut silences or transcript ranges. |
+| Refine | Add transitions, adjust color, apply Lumetri looks and animate clip properties. |
+| Review | Inspect the project, transcribe dialogue into captions, find cuts and silences, and export still frames. |
+| Deliver | Check loudness against a delivery target, export a sequence or queue it in Media Encoder. |
 
 See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for the full set of operations and parameters.
 
