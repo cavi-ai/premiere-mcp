@@ -58,7 +58,7 @@ class NotReady(OperationRejected):
 
 
 # One call at a time drives Premiere, across every server process of this user.
-ACCESS = FileLock(Path(tempfile.gettempdir()) / "cavi-premiere.lock")
+ACCESS = FileLock(Path(tempfile.gettempdir()) / "cavi-premiere.lock", follow=False)
 _call = threading.local()
 
 
@@ -848,19 +848,33 @@ def scene_times(media, threshold, timeout=3600, start=None, end=None):
     return [float(m) for m in re.findall(r"pts_time:([0-9.]+)", result.stderr)]
 
 
-def video_clip(listed, sequence, track, at, position_index):
-    """The video clip at a time or position in the first of the inspected sequences, or a ValueError."""
+def silence_ranges(media, noise_db, min_seconds, timeout, start, end):
+    """Source ranges of silence in a file's first audio stream from ffmpeg silencedetect, start to end only; a
+    silence still open at end ends there."""
+    result = run_sync([ffmpeg_tool("ffmpeg"), "-hide_banner", "-ss", str(start), "-copyts", "-i", str(media),
+                       "-to", str(end), "-vn", "-map", "0:a:0", "-af",
+                       f"silencedetect=noise={noise_db}dB:d={min_seconds}", "-f", "null", "-"], timeout)
+    if result.returncode:
+        raise RuntimeError(f"ffmpeg could not read the audio of {media}: " + diagnostics(result))
+    starts = [float(m) for m in re.findall(r"silence_start: (-?[0-9.]+)", result.stderr)]
+    ends = [float(m) for m in re.findall(r"silence_end: (-?[0-9.]+)", result.stderr)]
+    return [(max(a, start), min(b, end)) for a, b in zip(starts, ends + [end] * (len(starts) - len(ends)))]
+
+
+def video_clip(listed, sequence, track, at, position_index, kind="video"):
+    """The clip of a video (or audio) track at a time or position in the first of the inspected sequences, or a
+    ValueError."""
     if not listed:
         raise ValueError(f"No sequence named {sequence}" if sequence else "The project has no sequence")
     if sequence is None and len(listed) > 1:
         raise ValueError("Give the sequence by name or id")
-    lanes = single_sequence(listed, sequence)["video"]
+    lanes = single_sequence(listed, sequence)[kind]
     if track >= len(lanes):
-        raise ValueError(f"No video track {track} (the sequence has {len(lanes)})")
+        raise ValueError(f"No {kind} track {track} (the sequence has {len(lanes)})")
     clips = lanes[track]["clips"]
     if position_index is not None:
         if position_index >= len(clips):
-            raise ValueError(f"No clip at position {position_index} on video track {track} ({len(clips)} clips)")
+            raise ValueError(f"No clip at position {position_index} on {kind} track {track} ({len(clips)} clips)")
         clip = clips[position_index]
     else:
         clip = next((c for c in clips if c["start"] - 0.0005 <= at < c["end"] - 0.0005), None)

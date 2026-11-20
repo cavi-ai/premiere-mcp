@@ -99,6 +99,7 @@ See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for 
 | `premiere_gaps` | Lists or closes empty gaps. |
 | `premiere_range_remove` | Cuts one or many time ranges out of every unlocked track. |
 | `premiere_scene_detect` | Finds hard cuts in a clip's media and optionally splits or marks them. |
+| `premiere_silence` | Finds silences in an audio clip's media and optionally marks or cuts them out. |
 | `premiere_markers_add` | Adds sequence markers or a beat grid. |
 | `premiere_markers_edit` | Lists, updates or deletes sequence markers. |
 | `premiere_mogrt_add` | Places a Motion Graphics template and sets its text. |

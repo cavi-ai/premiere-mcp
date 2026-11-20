@@ -11,12 +11,14 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `sequence` takes a sequence's id as well as its name; project items take their id as well as a media path or name.
 - `premiere_inspect` returns each item's `id` and each sequence's `active`, and takes `items` and `tracks` to leave those parts out.
 - Markers take `color` (0 to 7) and `type` (`comment`, `chapter`, `segmentation`, `weblink` with `url`) in `premiere_markers_add` and `premiere_markers_edit`; `premiere_markers_edit` and `premiere_inspect` report them, and a moved marker keeps them.
-- Discovery budgets: 80000 schema bytes, 20000 catalog tokens, 900 tokens per tool.
+- Discovery budgets: 48 tools, 80000 schema bytes, 20000 catalog tokens, 900 tokens per tool.
 - `premiere_project` `save` takes `path` and `replace` to save the project as another file.
 - `premiere_tracks` sets an audio track's `volume_db` and reports each audio track's `volume`.
 - `premiere_clip_props` sets an audio clip's `pan`.
 - `premiere_effect_set` `remove` and `premiere_transition_add` `remove` delete an effect or the transition at a clip edge.
 - `premiere_range_remove` takes `ranges` to cut many ranges in one job and reports each range on the frame grid; ranges that overlap are refused.
+- `premiere_silence` finds the silences in a placed audio clip through its speed and direction, and reports, marks, lifts or extracts them in one job.
+- A `pin-core` workflow opens a pull request that locks each new cavi-mcp-core release.
 
 ### Changed
 
@@ -25,7 +27,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_interchange` `audio_rate` and `bits` default to none; AAF and OMF use 48000 Hz and 16 bits when they are omitted.
 - `premiere_transition_add` `transition`, `frames` and `alignment` default to none; an add uses Cross Dissolve, 12 frames and 0.5 when they are omitted.
 - A missing input file is `INPUT_NOT_FOUND`; a relay Bridge never ran is `RELAY_NOT_APPROVED` and a Premiere Pro that never answered is `PREMIERE_NOT_READY`, both `rejected`.
-- Results leave out optional fields the tool did not set. Requires cavi-mcp-core 0.1.7.
+- Results leave out optional fields the tool did not set.
+- Requires cavi-mcp-core 0.1.8; the lock that serializes Premiere Pro calls refuses a lock file that is a symbolic link.
 
 ### Fixed
 

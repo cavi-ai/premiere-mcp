@@ -1,6 +1,6 @@
 # Tools
 
-The server registers 43 tools. This page lists every tool with its parameters, defaults and result
+The server registers 44 tools. This page lists every tool with its parameters, defaults and result
 fields. A test fails when a tool, a parameter, a default or a result field here differs from the
 registered catalog.
 
@@ -57,6 +57,7 @@ required.
 | `premiere_gaps` | destructive | 300 | Lists or closes empty gaps. |
 | `premiere_range_remove` | destructive | 300 | Cuts one or many time ranges out of every unlocked track. |
 | `premiere_scene_detect` | write | 600 | Finds hard cuts in a clip's media and optionally splits or marks them. |
+| `premiere_silence` | destructive | 600 | Finds silences in an audio clip's media and optionally marks or cuts them out. |
 | `premiere_markers_add` | write | 300 | Adds sequence markers or a beat grid. |
 | `premiere_markers_edit` | destructive | 300 | Lists, updates or deletes sequence markers. |
 | `premiere_mogrt_add` | write | 300 | Places a Motion Graphics template and sets its text. |
@@ -615,6 +616,27 @@ range is decoded. Needs `ffmpeg`.
 | `sequence` | string | none | The sequence. |
 
 Returns `clip`, `cuts`, `applied`, `clips_after`, `markers`, `warnings`.
+
+### `premiere_silence`
+
+Finds the silences inside a placed audio clip from its media (ffmpeg `silencedetect`: quieter than
+`noise_db` for at least `min_seconds`) and returns them as timeline seconds, through the clip's speed
+and direction. Each silence keeps `pad` seconds at both ends, and one shorter than a frame is left out.
+`lift` and `extract` cut every silence out of every unlocked track in one `premiere_range_remove` job
+and report the silences on the frame grid where they were cut. Needs `ffmpeg`.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `track` | integer | `0` | Audio track index. |
+| `at` | number | none | Address by time. |
+| `position_index` | integer | none | Address by place on the track. |
+| `noise_db` | number | `-35` | Silence level in dBFS, -90 to 0. |
+| `min_seconds` | number | `0.5` | Shortest silence, in seconds. |
+| `pad` | number | `0.1` | Seconds of silence kept at each end. |
+| `apply` | `report`, `markers`, `lift`, `extract` | `"report"` | Only report, add a marker per silence, or cut them out, leaving or closing the holes. |
+| `sequence` | string | none | The sequence. |
+
+Returns `clip`, `silences`, `applied`, `markers`, `removed`, `moved`, `sequence_end`, `warnings`.
 
 ### `premiere_markers_add`
 

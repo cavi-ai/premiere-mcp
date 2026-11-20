@@ -443,6 +443,15 @@ class OneCallAtATimeTest(unittest.TestCase):
         self.assertEqual(len(jobs), 4)
         self.assertEqual((jobs[0][1], jobs[2][1]), (jobs[1][1], jobs[3][1]), jobs)
 
+    def test_a_lock_file_that_is_a_symbolic_link_is_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            link, target = Path(folder) / "cavi-premiere.lock", Path(folder) / "elsewhere"
+            link.symlink_to(target)
+            with mock.patch.object(host.ACCESS, "path", link), self.assertRaises(OSError):
+                with host.exclusive(1):
+                    pass
+            self.assertFalse(target.exists())
+
 
 LANES = """
 function Time() { this.ticks = "0"; }
@@ -558,6 +567,52 @@ class BatchTimelineTest(unittest.TestCase):
                 timeline.range_remove("s1", 1, 2, "extract", 60, [{"start": 3, "end": 4}])
             with self.assertRaisesRegex(ValueError, "Give start and end, or ranges"):
                 timeline.range_remove("s1", 1, None, "extract", 60)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is required")
+class SilenceTest(unittest.TestCase):
+    """Silences come from the clip's media and land on the timeline through its speed and direction."""
+
+    @staticmethod
+    def talk(folder):
+        talk = Path(folder) / "talk.wav"
+        # Tone 0-2 s, silence 2-3.5 s, tone 3.5-5.5 s.
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=f=440:d=2", "-f", "lavfi",
+                        "-i", "anullsrc=r=44100:cl=mono:d=1.5", "-f", "lavfi", "-i", "sine=f=660:d=2",
+                        "-filter_complex", "[0][1][2]concat=n=3:v=0:a=1", str(talk)], check=True)
+        return talk
+
+    @unittest.skipUnless(shutil.which("node"), "node is required")
+    def test_extract_reports_the_silences_on_the_frame_grid_where_they_were_cut(self):
+        with tempfile.TemporaryDirectory() as folder:
+            talk, edits = self.talk(folder), Path(folder) / "edits.txt"
+            edits.write_text("")
+            # 2.1 s is frame 52.5 at 25 fps; the cut lands on frame 53, 2.12 s.
+            v1 = [["A", 0, 2.12], ["B", 2.12, 3.4], ["C", 3.4, 5.5]]
+            a1 = [[name.lower(), start, end] for name, start, end in v1]
+            clip = {"name": "talk", "start": 0, "end": 5.5, "in_point": 0, "out_point": 5.5, "speed": 100,
+                    "reversed": False, "media_path": str(talk)}
+            listed = [{"name": "Main", "id": "s1", "fps": 25, "video": [], "audio": [{"clips": [clip]}]}]
+            stub = (f"var EDITS = {json.dumps(str(edits))}, V1 = {json.dumps(v1)}, A1 = {json.dumps(a1)}, "
+                    "END = 5.5;" + TIMELINE)
+            with mock.patch.object(host, "inspect", lambda sequence, timeout, **_: {"sequences": listed}), \
+                    mock.patch.object(host, "relay", node_relay(stub)):
+                done = timeline.silence("s1", 0, 1, None, -35, 0.5, 0.1, "extract", 60)
+            self.assertEqual(done["silences"], [{"start": 2.12, "end": 3.4}])
+            self.assertEqual(edits.read_text().splitlines()[:2], ["remove B", "remove b"])
+
+    def test_silences_follow_the_speed_and_direction_and_keep_the_pad(self):
+        with tempfile.TemporaryDirectory() as folder:
+            talk = self.talk(folder)
+            for speed, reversed_, silences in ((100, False, [{"start": 12.1, "end": 13.4}]),
+                                               (200, True, [{"start": 11.1, "end": 11.65}])):
+                clip = {"name": "talk", "start": 10, "end": 10 + 5.5 * 100 / speed, "in_point": 0, "out_point": 5.5,
+                        "speed": speed, "reversed": reversed_, "media_path": str(talk)}
+                listed = [{"name": "S", "id": "s1", "fps": 25, "video": [], "audio": [{"clips": [clip]}]}]
+                with self.subTest(speed=speed, reversed=reversed_), \
+                        mock.patch.object(host, "inspect", lambda sequence, timeout, **_: {"sequences": listed}):
+                    found = timeline.silence("s1", 0, 10.5, None, -35, 0.5, 0.1, "report", 60)
+                    self.assertEqual(found["silences"], silences)
 
 
 ENCODER = """
