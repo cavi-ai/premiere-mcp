@@ -91,6 +91,8 @@
    "error": "greater than or equal to 30"},
   {"id": "scene-detect-timeout-floor", "tool": "premiere_scene_detect", "arguments": {"timeout": 29}, "kind": "invalid",
    "error": "greater than or equal to 30"},
+  {"id": "silence-needs-one-clip", "tool": "premiere_silence", "arguments": {}, "kind": "invalid",
+   "error": "exactly one of at, position_index or name"},
   {"id": "script-timeout-floor", "tool": "premiere_script", "arguments": {"script": "/s.jsx", "timeout": 29},
    "kind": "invalid", "error": "greater than or equal to 30"},
   {"id": "transition-add-timeout-floor", "tool": "premiere_transition_add", "arguments": {"timeout": 29},

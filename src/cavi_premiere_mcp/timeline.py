@@ -7,7 +7,7 @@ from cavi_mcp_core.server import DESTRUCTIVE, reject_foreign
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import host
-from .app import Seconds, SequenceName, Timeout, mcp
+from .app import ClipAt, ClipIndex, Seconds, SequenceName, Timeout, Track, mcp
 from .models import MarkerColor, MarkerType, Result, web_link
 
 MAX_RANGES = 500
@@ -59,6 +59,38 @@ def range_remove(sequence, start, end, mode, timeout, ranges=None):
             raise ValueError(f"The ranges {earlier['start']}-{earlier['end']} s and {later['start']}-{later['end']} s "
                              "overlap")
     return host.invoke("range_remove", {"sequence": sequence, "ranges": ranges, "mode": mode}, timeout)
+
+
+def silence(sequence, track, at, position_index, noise_db, min_seconds, pad, apply, timeout):
+    """The silences of a placed audio clip as timeline seconds, pad seconds shorter at each end and none
+    shorter than a frame; optionally marked, or cut out of every unlocked track in one job."""
+    host.one_clip(at, position_index)
+    with host.exclusive(timeout):
+        listed = host.inspect(sequence, timeout, items=False)["sequences"]
+        clip = host.video_clip(listed, sequence, track, at, position_index, "audio")
+        frame = 1 / host.single_sequence(listed, sequence)["fps"]
+        first, last, ratio = clip["in_point"], clip["out_point"], clip["speed"] / 100
+
+        def placed(t):  # source seconds to timeline seconds, from the out point when the clip plays backwards
+            return clip["start"] + ((last - t) if clip["reversed"] else (t - first)) / ratio
+
+        found = []
+        for a, b in host.silence_ranges(clip["media_path"], noise_db, min_seconds, timeout, first, last):
+            start, end = sorted((placed(a), placed(b)))
+            start, end = round(start + pad, 3), round(end - pad, 3)
+            if end - start >= frame:
+                found.append({"start": start, "end": end})
+        found.sort(key=lambda r: r["start"])
+        result = {"clip": clip["name"], "silences": found, "applied": apply}
+        if found and apply == "markers":
+            result["markers"] = host.markers_add(sequence, [{"time": r["start"], "name": "silence", "comment": "",
+                                                             "duration": round(r["end"] - r["start"], 3)}
+                                                            for r in found], None, timeout)["total"]
+        elif found and apply in ("lift", "extract"):
+            cut = range_remove(sequence, None, None, apply, timeout, found)
+            result.update(silences=cut["ranges"], removed=cut["removed"], moved=cut["moved"],
+                          sequence_end=cut["sequence_end"])
+        return result
 
 
 def bins(action, name, parent, new_name, items, force, timeout):
@@ -128,6 +160,16 @@ class RangeRemoved(Result):
     sequence_end: float
 
 
+class Silences(Result):
+    clip: str
+    silences: list[Gap]
+    applied: str
+    markers: int | None = None
+    removed: int | None = None
+    moved: int | None = None
+    sequence_end: float | None = None
+
+
 class BinInfo(BaseModel):
     name: str
     parent: str | None = None
@@ -194,6 +236,27 @@ async def premiere_range_remove(
     times and the ones inside are removed."""
     return await asyncio.to_thread(range_remove, sequence, start, end, mode, timeout,
                                    [r.model_dump() for r in ranges or []])
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def premiere_silence(
+        track: Annotated[Track, Field(description="0-based audio track index of the clip; 0 is A1.")] = 0,
+        at: ClipAt = None, position_index: ClipIndex = None,
+        noise_db: Annotated[float, Field(ge=-90, le=0, description="Audio quieter than this is silent, in "
+                                                                   "dBFS.")] = -35,
+        min_seconds: Annotated[float, Field(gt=0, le=60, description="Shortest silence found, in "
+                                                                     "seconds.")] = 0.5,
+        pad: Annotated[float, Field(ge=0, le=5, description="Seconds of silence kept at each end of a "
+                                                            "silence.")] = 0.1,
+        apply: Annotated[Literal["report", "markers", "lift", "extract"],
+                         Field(description="report only, add a marker per silence, or cut the silences out of "
+                                           "every unlocked track in one job: lift leaves the holes, extract "
+                                           "closes them.")] = "report",
+        sequence: SequenceName = None, timeout: Timeout = 600) -> Silences:
+    """Find the silences in a placed audio clip from its media and return them as timeline seconds; optionally
+    mark them or cut them out."""
+    return await asyncio.to_thread(silence, sequence, track, at, position_index, noise_db, min_seconds, pad, apply,
+                                   timeout)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
