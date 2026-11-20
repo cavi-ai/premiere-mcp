@@ -125,25 +125,41 @@ LUMETRI = (("exposure", "Exposure"), ("contrast", "Contrast"), ("highlights", "H
            ("tint", "Tint"), ("saturation", "Saturation"), ("vibrance", "Vibrance"))
 
 
-def color(sequence, track, at, position_index, values, timeout):
-    """Set Lumetri Color basic parameters on a video clip, adding the effect when the clip lacks it."""
+def color(sequence, track, at, position_index, values, timeout, look=None, list_looks=False):
+    """Set Lumetri Color basic parameters and apply a look on a video clip, adding the effect when the clip lacks
+    it; or list the looks."""
+    given = {key: value for key, value in values.items() if value is not None}
+    if list_looks:
+        extra = sorted(k for k, v in {"look": look, "at": at, "position_index": position_index, "sequence": sequence,
+                                      **given}.items() if v is not None)
+        if extra:
+            raise ValueError("Not valid with list_looks: " + ", ".join(extra))
+        return {"applied": {}, "looks": host.invoke("color_look", {"list": True}, timeout)["looks"]}
     if (at is None) == (position_index is None):
         raise ValueError("Give exactly one of at or position_index")
-    given = {key: value for key, value in values.items() if value is not None}
-    if not given:
-        raise ValueError("Give at least one color value")
+    if not given and look is None:
+        raise ValueError("Give at least one color value, a look or list_looks")
     specs = [{"name": name, "value": given[key]} for key, name in LUMETRI if key in given]
     with host.exclusive(timeout):
+        result = {}
+        if look is not None:
+            result = host.invoke("color_look", {"sequence": sequence, "track": track, "at": at,
+                                                "position_index": position_index, "look": look}, timeout)
+            result = {"clip": result["clip"], "look": result["look"], "applied": {}}
+        if not specs:
+            return result
         present = host.effect_set(sequence, "video", track, at, position_index, None, 0, True, [], timeout)
         if not any(c["name"] == "Lumetri Color" for c in present["components"]):
             host.effect_add(sequence, "video", track, at, position_index, "Lumetri Color", timeout)
-        return host.effect_set(sequence, "video", track, at, position_index, "Lumetri Color", 0, False, specs,
-                               timeout)
+        return {**result, **host.effect_set(sequence, "video", track, at, position_index, "Lumetri Color", 0, False,
+                                            specs, timeout)}
 
 
 class Colored(Result):
-    clip: str
+    clip: str | None = None
     applied: dict
+    look: str | None = None
+    looks: list[str] | None = None
 
 
 class Faded(Result):
@@ -237,13 +253,17 @@ async def premiere_color(
                               Field(description="Lumetri Saturation, 0 to 200; 100 is neutral.")] = None,
         vibrance: grade("Vibrance") = None,
         track: Annotated[Track, Field(description="0-based video track index of the clip; 0 is V1.")] = 0,
+        look: Annotated[str | None, Field(description="Lumetri look (preset) name from list_looks, applied before "
+                                                      "the values.")] = None,
+        list_looks: Annotated[bool, Field(description="Return the look names and nothing else.")] = False,
         at: ClipAt = None, position_index: ClipIndex = None,
         sequence: SequenceName = None, timeout: Timeout = 300) -> Colored:
-    """Basic color correction on a video clip with Lumetri Color, added when the clip has none."""
+    """Basic color correction on a video clip with Lumetri Color, added when the clip has none; look applies a
+    Lumetri look first."""
     values = {"exposure": exposure, "contrast": contrast, "highlights": highlights, "shadows": shadows,
               "whites": whites, "blacks": blacks, "temperature": temperature, "tint": tint,
               "saturation": saturation, "vibrance": vibrance}
-    return await asyncio.to_thread(color, sequence, track, at, position_index, values, timeout)
+    return await asyncio.to_thread(color, sequence, track, at, position_index, values, timeout, look, list_looks)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
