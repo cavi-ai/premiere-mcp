@@ -1,6 +1,6 @@
 # Tools
 
-The server registers 44 tools. This page lists every tool with its parameters, defaults and result
+The server registers 46 tools. This page lists every tool with its parameters, defaults and result
 fields. A test fails when a tool, a parameter, a default or a result field here differs from the
 registered catalog.
 
@@ -67,6 +67,8 @@ required.
 | `premiere_export` | destructive | 1800 | Exports a sequence with a preset. |
 | `premiere_encode` | destructive | 1800 | Queues a sequence in Media Encoder. |
 | `premiere_interchange` | destructive | 600 | Exports FCP XML, AAF or OMF, or imports an FCP XML. |
+| `premiere_loudness` | destructive | 600 | Measures a file's loudness against a target and optionally writes a normalized copy. |
+| `premiere_item_new` | write | 300 | Creates bars and tone, black video or transparent video in the project. |
 
 ### `premiere_status`
 
@@ -798,3 +800,48 @@ use is refused: `audio_rate` and `bits` are for AAF and OMF, and `import_xml` ta
 | `sequence` | string | none | The sequence to export. |
 
 Returns `action`, `path`, `size`, `sequence`, `imported`, `warnings`.
+
+### `premiere_loudness`
+
+Measures the integrated loudness (LUFS), loudness range (LU) and true peak (dBTP) of a file's first audio
+stream with ffmpeg `ebur128=peak=true`, and compares them with a target. Presets: `streaming` -14 LUFS
+and -1 dBTP, `podcast` -16 and -1, `ebu_r128` -23 and -1, `atsc_a85` -24 and -2; without `target` and
+`target_lufs` the target is `streaming`. `target_lufs` gives an explicit target with `max_true_peak`
+(-1 when omitted); a preset together with either is refused. `passes` is true when the integrated loudness
+is within `tolerance` LU of the target and the true peak is at or below the ceiling. `normalize` writes a
+two-pass `loudnorm` copy at that absolute path with the video stream copied and the audio at the
+original sample rate, and reports the copy's measured values and `passes` under `normalized`; an existing
+file is refused unless `replace` is true. Without `normalize` nothing is written. Needs `ffmpeg`; no
+Premiere Pro.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `file` | string | required | Absolute path of the media to measure. |
+| `target` | `streaming`, `podcast`, `ebu_r128`, `atsc_a85` | none | Preset target. |
+| `target_lufs` | number | none | Explicit integrated loudness target, -70 to -5. |
+| `max_true_peak` | number | none | Explicit true peak ceiling in dBTP, -9 to 0; -1 with `target_lufs`. |
+| `tolerance` | number | `1` | Allowed distance from the target, in LU, 0 to 12. |
+| `normalize` | string | none | Absolute path of the normalized copy. |
+| `replace` | boolean | `false` | Overwrite an existing `normalize` file. |
+
+Returns `file`, `integrated_lufs`, `loudness_range_lu`, `true_peak_dbtp`, `target_lufs`, `max_true_peak`, `tolerance`, `passes`, `normalized`, `warnings`.
+
+### `premiere_item_new`
+
+Creates a project item through the QE project: `bars_and_tone`, `black_video` or `transparent_video`.
+Width, height and frame rate default to the sequence's; `bars_and_tone` ignores them and is Premiere's
+"HD Bars and Tone" (1920x1080). `name` renames the item and `bin` moves it into a bin, created
+when missing. The item is found by comparing the project's items before and after; a call that adds none
+is an error.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `kind` | `bars_and_tone`, `black_video`, `transparent_video` | required | The item to create. |
+| `name` | string | none | Name of the item. |
+| `bin` | string | none | Bin to move it into. |
+| `width` | integer | none | Frame width. |
+| `height` | integer | none | Frame height. |
+| `fps` | number | none | Frame rate. |
+| `sequence` | string | none | The sequence whose size and rate are the defaults. |
+
+Returns `name`, `id`, `kind`, `bin`, `warnings`.
