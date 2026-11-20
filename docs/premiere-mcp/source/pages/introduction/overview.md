@@ -18,7 +18,7 @@ license yourself. It sends no telemetry and uses no accounts.
   sequences as FCP XML, AAF or OMF.
 - Run your own ExtendScript file in Premiere Pro.
 
-The [tools reference](../reference/tools.md) lists all 44 tools with their parameters and results.
+The [tools reference](../reference/tools.md) lists all 45 tools with their parameters and results.
 
 ## How it works
 

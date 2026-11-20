@@ -100,6 +100,7 @@ See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for 
 | `premiere_range_remove` | Cuts one or many time ranges out of every unlocked track. |
 | `premiere_scene_detect` | Finds hard cuts in a clip's media and optionally splits or marks them. |
 | `premiere_silence` | Finds silences in an audio clip's media and optionally marks or cuts them out. |
+| `premiere_transcript` | Transcribes an audio clip with whisper into timeline segments and words, an `.srt` and captions. |
 | `premiere_markers_add` | Adds sequence markers or a beat grid. |
 | `premiere_markers_edit` | Lists, updates or deletes sequence markers. |
 | `premiere_mogrt_add` | Places a Motion Graphics template and sets its text. |
@@ -138,6 +139,7 @@ The documentation source is in `docs/premiere-mcp/source`:
 | `CAVI_PREMIERE_APP` | The Premiere Pro `.app` to use. |
 | `CAVI_BRIDGE_APP` | The Adobe Bridge `.app` to use. |
 | `CAVI_MEDIA_ENCODER_APP` | The Media Encoder `.app` to use. |
+| `CAVI_WHISPER_MODEL` | The `premiere_transcript` model when none is given: a whisper model name or an absolute path to a local model folder; `base` when unset. |
 
 Without an override the newest installed version under `/Applications` is used. An override that names
 another application is refused.

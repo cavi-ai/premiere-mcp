@@ -7,6 +7,7 @@
 | `CAVI_PREMIERE_APP` | The Premiere Pro `.app` to use. |
 | `CAVI_BRIDGE_APP` | The Adobe Bridge `.app` to use. |
 | `CAVI_MEDIA_ENCODER_APP` | The Media Encoder `.app` to use. |
+| `CAVI_WHISPER_MODEL` | The `premiere_transcript` model when none is given: a whisper model name or an absolute path to a local model folder; `base` when unset. |
 
 Without an override the newest installed version under `/Applications` is used. An override that
 names another application is refused. Set a variable in the `env` object of the server's entry in

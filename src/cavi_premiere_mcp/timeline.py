@@ -3,7 +3,7 @@
 import asyncio
 from typing import Annotated, Literal
 
-from cavi_mcp_core.server import DESTRUCTIVE, reject_foreign
+from cavi_mcp_core.server import DESTRUCTIVE, WRITES, reject_foreign
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import host
@@ -93,6 +93,51 @@ def silence(sequence, track, at, position_index, noise_db, min_seconds, pad, app
         return result
 
 
+def srt_time(seconds):
+    ms = round(seconds * 1000)
+    return f"{ms // 3600000:02}:{ms // 60000 % 60:02}:{ms // 1000 % 60:02},{ms % 1000:03}"
+
+
+def transcript(sequence, track, at, position_index, model, language, srt, captions, timeout):
+    """The speech of a placed audio clip as segments and words in timeline seconds, through the clip's speed and
+    direction; optionally written as an .srt and imported as captions."""
+    host.one_clip(at, position_index)
+    if captions and not srt:
+        raise ValueError("captions needs srt")
+    target = host.absolute(srt, ".srt") if srt else None
+    model = host.speech_model(model)
+    host.speech_tool(model)
+    with host.exclusive(timeout):
+        listed = host.inspect(sequence, timeout, items=False)["sequences"]
+        clip = host.video_clip(listed, sequence, track, at, position_index, "audio")
+        first, last, ratio = clip["in_point"], clip["out_point"], clip["speed"] / 100
+
+        def placed(t):  # clip-relative source seconds to timeline seconds
+            return clip["start"] + ((last - first - t) if clip["reversed"] else t) / ratio
+
+        spoken = host.transcribe(clip["media_path"], first, last, model, language, timeout)
+        segments, words = [], []
+        for part in spoken.get("segments", []):
+            start, end = sorted((placed(part["start"]), placed(part["end"])))
+            segments.append({"start": round(start, 3), "end": round(end, 3), "text": part["text"].strip()})
+            for word in part.get("words", []):
+                start, end = sorted((placed(word["start"]), placed(word["end"])))
+                words.append({"start": round(start, 3), "end": round(end, 3), "word": word["word"].strip()})
+        segments.sort(key=lambda s: s["start"])
+        words.sort(key=lambda w: w["start"])
+        result = {"clip": clip["name"], "language": spoken.get("language", language or ""), "segments": segments,
+                  "words": words}
+        if target:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("".join(f"{n}\n{srt_time(s['start'])} --> {srt_time(s['end'])}\n{s['text']}\n\n"
+                                      for n, s in enumerate(segments, 1)), encoding="utf-8")
+            result["srt"] = str(target)
+            if captions:
+                result["captions"] = host.captions(sequence, target, 0, "subtitle", timeout)["captions"] if segments \
+                    else 0
+        return result
+
+
 def bins(action, name, parent, new_name, items, force, timeout):
     reject_foreign(action, {"parent": parent, "new_name": new_name, "items": items or None, "force": force or None},
                    BINS_USES[action])
@@ -168,6 +213,27 @@ class Silences(Result):
     removed: int | None = None
     moved: int | None = None
     sequence_end: float | None = None
+
+
+class Segment(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
+class Word(BaseModel):
+    start: float
+    end: float
+    word: str
+
+
+class Transcript(Result):
+    clip: str
+    language: str
+    segments: list[Segment]
+    words: list[Word]
+    srt: str | None = None
+    captions: int | None = None
 
 
 class BinInfo(BaseModel):
@@ -256,6 +322,26 @@ async def premiere_silence(
     """Find the silences in a placed audio clip from its media and return them as timeline seconds; optionally
     mark them or cut them out."""
     return await asyncio.to_thread(silence, sequence, track, at, position_index, noise_db, min_seconds, pad, apply,
+                                   timeout)
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_transcript(
+        track: Annotated[Track, Field(description="0-based audio track index of the clip; 0 is A1.")] = 0,
+        at: ClipAt = None, position_index: ClipIndex = None,
+        model: Annotated[str | None, Field(description="Whisper model name (tiny, base, small, medium, large, "
+                                                       "turbo and variants), or an absolute path to a local model "
+                                                       "folder, run with mlx-audio. CAVI_WHISPER_MODEL, else "
+                                                       "base, when omitted.")] = None,
+        language: Annotated[str | None, Field(description="Spoken language code, such as en; detected when "
+                                                         "omitted.")] = None,
+        srt: Annotated[str | None, Field(description="Absolute path of an .srt to write from the segments, in "
+                                                     "timeline seconds.")] = None,
+        captions: Annotated[bool, Field(description="Import the .srt as a caption track; needs srt.")] = False,
+        sequence: SequenceName = None, timeout: Timeout = 1800) -> Transcript:
+    """Transcribe a placed audio clip with local whisper and return segments and words as timeline seconds;
+    optionally write an .srt and import it as captions. Word times feed premiere_range_remove ranges."""
+    return await asyncio.to_thread(transcript, sequence, track, at, position_index, model, language, srt, captions,
                                    timeout)
 
 
