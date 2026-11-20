@@ -162,3 +162,37 @@ async def premiere_item_new(
         sequence: SequenceName = None, timeout: Timeout = 300) -> NewItem:
     """Create a project item through Premiere's QE project: bars and tone, black video or transparent video."""
     return await asyncio.to_thread(item_new, kind, name, bin, width, height, fps, sequence, timeout)
+
+
+def render_state(sequence, action, mode, timeout):
+    """Red and yellow render bars of a sequence in timeline seconds; render first renders it."""
+    return host.invoke("render", {"sequence": sequence, "action": action, "mode": mode}, timeout)
+
+
+class Bar(BaseModel):
+    start: float
+    end: float
+
+
+class RenderBars(BaseModel):
+    red: list[Bar]
+    yellow: list[Bar]
+
+
+class RenderState(Result):
+    sequence: str
+    red: list[Bar]
+    yellow: list[Bar]
+    before: RenderBars | None = None
+
+
+@mcp.tool(annotations=WRITES)
+async def premiere_render(
+        action: Annotated[Literal["status", "render"], Field(description="Report the unrendered ranges, or render "
+                                                                         "the sequence first.")] = "status",
+        mode: Annotated[Literal["all", "preview"], Field(description="With render: renderAll or "
+                                                                     "renderPreview.")] = "all",
+        sequence: SequenceName = None, timeout: Timeout = 1800) -> RenderState:
+    """Report a sequence's red (needs render) and yellow (real time) ranges in timeline seconds; render renders
+    the whole sequence first and reports the ranges left."""
+    return await asyncio.to_thread(render_state, sequence, action, mode, timeout)

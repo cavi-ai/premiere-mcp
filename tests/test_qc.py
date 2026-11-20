@@ -113,5 +113,43 @@ class SyntheticItemTest(unittest.TestCase):
             self.make(silent=True, kind="bars_and_tone")
 
 
+RENDER = SEQUENCE + """
+function qt(seconds) { return {ticks: String(seconds * 254016000000)}; }
+var red = RED, yellow = YELLOW;
+var sequence = {name: "Main", getRedBarTimes: function () { return red.map(qt); },
+    getYellowBarTimes: function () { return yellow.map(qt); },
+    renderAll: function () { fs.appendFileSync(LOG, "renderAll\\n"); red = []; yellow = []; },
+    renderPreview: function () { fs.appendFileSync(LOG, "renderPreview\\n"); red = []; }};
+qe.project.getActiveSequence = function () { return sequence; };
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class RenderStateTest(unittest.TestCase):
+    def state(self, action, mode):
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "log.txt"
+            stub = (f"var LOG = {json.dumps(str(log))}, SILENT = false, RED = [2, 4, 8, 9], YELLOW = [0, 2];"
+                    + RENDER)
+            with mock.patch.object(host, "relay", node_relay(stub)):
+                done = qc.render_state(None, action, mode, 60)
+            return done, log.read_text() if log.exists() else ""
+
+    def test_status_lists_the_red_and_yellow_ranges_in_seconds(self):
+        done, log = self.state("status", "all")
+        self.assertEqual(done["red"], [{"start": 2, "end": 4}, {"start": 8, "end": 9}])
+        self.assertEqual(done["yellow"], [{"start": 0, "end": 2}])
+        self.assertEqual(log, "")
+
+    def test_render_reports_the_ranges_before_and_after(self):
+        done, log = self.state("render", "all")
+        self.assertEqual((log, done["red"], done["yellow"]), ("renderAll\n", [], []))
+        self.assertEqual(len(done["before"]["red"]), 2)
+
+    def test_a_preview_render_leaves_the_yellow_ranges(self):
+        done, log = self.state("render", "preview")
+        self.assertEqual((log, done["red"], len(done["yellow"])), ("renderPreview\n", [], 1))
+
+
 if __name__ == "__main__":
     unittest.main()

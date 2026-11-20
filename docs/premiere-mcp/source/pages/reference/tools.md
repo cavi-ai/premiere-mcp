@@ -70,6 +70,7 @@ required.
 | `premiere_interchange` | destructive | 600 | Exports FCP XML, AAF or OMF, or imports an FCP XML. |
 | `premiere_loudness` | destructive | 600 | Measures a file's loudness against a target and optionally writes a normalized copy. |
 | `premiere_item_new` | write | 300 | Creates bars and tone, black video or transparent video in the project. |
+| `premiere_render` | write | 1800 | Reports a sequence's unrendered ranges and optionally renders it. |
 
 ### `premiere_status`
 
@@ -873,3 +874,19 @@ is an error.
 | `sequence` | string | none | The sequence whose size and rate are the defaults. |
 
 Returns `name`, `id`, `kind`, `bin`, `warnings`.
+
+### `premiere_render`
+
+Reports the sequence's unrendered ranges from the QE sequence's `getRedBarTimes` (needs a render) and
+`getYellowBarTimes` (renders in real time) as timeline seconds. `render` first runs `renderAll` or
+`renderPreview` (`mode`) on the whole sequence and returns the ranges before (`before`) and after. Both
+calls render the whole sequence; a range is not offered. Frames rendered earlier in the session are
+reused, so a sequence can read as rendered before the call.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `action` | `status`, `render` | `"status"` | Report only, or render first. |
+| `mode` | `all`, `preview` | `"all"` | With `render`: `renderAll` or `renderPreview`. |
+| `sequence` | string | none | The sequence. |
+
+Returns `sequence`, `red`, `yellow`, `before`, `warnings`.
