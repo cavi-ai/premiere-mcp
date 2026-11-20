@@ -12,6 +12,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_inspect` returns each item's `id` and each sequence's `active`, and takes `items` and `tracks` to leave those parts out.
 - Markers take `color` (0 to 7) and `type` (`comment`, `chapter`, `segmentation`, `weblink` with `url`) in `premiere_markers_add` and `premiere_markers_edit`; `premiere_markers_edit` and `premiere_inspect` report them, and a moved marker keeps them.
 - Discovery budgets: 56 tools, 100000 schema bytes, 26000 catalog tokens, 900 tokens per tool.
+- `premiere_scene_detect` takes `engine` `premiere` to run Premiere's scene edit detection on the clip; `premiere_import` takes `ae_project` and `comps` to import After Effects compositions and reports each item's `id`; `premiere_color` takes `look` and `list_looks` for Lumetri looks.
 - `premiere_project` `save` takes `path` and `replace` to save the project as another file.
 - `premiere_tracks` sets an audio track's `volume_db` and reports each audio track's `volume`.
 - `premiere_clip_props` sets an audio clip's `pan`.
@@ -19,6 +20,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_range_remove` takes `ranges` to cut many ranges in one job and reports each range on the frame grid; ranges that overlap are refused.
 - `premiere_silence` finds the silences in a placed audio clip through its speed and direction, and reports, marks, lifts or extracts them in one job.
 - `premiere_transcript` transcribes a placed audio clip with local whisper, or an mlx-audio model folder, into segments and words in timeline seconds, and writes an `.srt` or imports it as captions; word times feed `premiere_range_remove` `ranges`; `CAVI_WHISPER_MODEL` sets the default model.
+- `premiere_loudness` measures a file's integrated loudness, loudness range and true peak against a preset or explicit target, and `normalize` writes a two-pass loudnorm copy.
+- `premiere_item_new` creates bars and tone, black video or transparent video in the project.
 - A `pin-core` workflow opens a pull request that locks each new cavi-mcp-core release.
 
 ### Changed

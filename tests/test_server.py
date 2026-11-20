@@ -16,7 +16,7 @@ TOOLS = {"premiere_status", "premiere_bridge_install", "premiere_script", "premi
          "premiere_effect_add", "premiere_effect_set", "premiere_clip_fit", "premiere_items",
          "premiere_scene_detect", "premiere_silence", "premiere_transcript", "premiere_markers_edit", "premiere_gaps", "premiere_range_remove",
          "premiere_bins", "premiere_fade", "premiere_find", "premiere_clip_copy",
-         "premiere_color", "premiere_clip_slip"}
+         "premiere_color", "premiere_clip_slip", "premiere_loudness", "premiere_item_new"}
 
 
 class PackageTest(unittest.TestCase):
@@ -81,6 +81,7 @@ class ProtocolTest(unittest.IsolatedAsyncioTestCase):
                 ("premiere_silence", {}, "exactly one of at, position_index or name"),
                 ("premiere_transcript", {}, "exactly one of at, position_index or name"),
                 ("premiere_tracks", {}, "tracks to add or track states"),
+                ("premiere_loudness", {"file": "m.wav"}, "absolute path"),
                 ("premiere_frame_export", {"times": [1], "folder": "frames"}, "absolute path"),
             ]:
                 reply = await client.call_tool(name, args)

@@ -359,6 +359,17 @@ class ContractTest(unittest.TestCase):
             ("premiere_clip_edit", {"position_index": 0, "enabled": False, "keep_linked": True},
              "keep_linked needs remove"),
             ("premiere_scene_detect", {"position_index": 0, "include_audio": True}, "include_audio needs apply=cuts"),
+            ("premiere_scene_detect", {"position_index": 0, "engine": "premiere", "apply": "cuts", "threshold": 0.5},
+             "Not valid for engine=premiere: threshold"),
+            ("premiere_scene_detect", {"position_index": 0, "engine": "premiere", "apply": "cuts",
+                                       "include_audio": True}, "Not valid for engine=premiere: include_audio"),
+            ("premiere_scene_detect", {"position_index": 0, "engine": "premiere"},
+             "engine=premiere needs apply=cuts or apply=markers"),
+            ("premiere_import", {"files": ["/a.mp4"], "ae_project": "/a.aep"}, "exactly one of files or ae_project"),
+            ("premiere_import", {"files": ["/a.mp4"], "comps": ["Main"]}, "comps needs ae_project"),
+            ("premiere_import", {}, "exactly one of files or ae_project"),
+            ("premiere_color", {"list_looks": True, "look": "Cinespace 100"}, "Not valid with list_looks: look"),
+            ("premiere_color", {"position_index": 0}, "Give at least one color value, a look or list_looks"),
             ("premiere_effect_set", {"position_index": 0, "component": "Opacity", "list": True,
                                      "params": [{"name": "Opacity", "value": 50}]}, "list=true, not both"),
             ("premiere_effect_set", {"position_index": 0, "component": "Gaussian Blur", "remove": True, "list": True},
@@ -997,6 +1008,157 @@ class RetimedClipTest(unittest.TestCase):
                 with self.subTest(reversed=reversed_):
                     self.stub(source_in=1.5, source_out=5.5, reversed_=reversed_, media=str(movie))
                     self.assertEqual(host.scene_detect("s1", 0, None, 0, 0.3, "report", False, 60)["cuts"], cuts)
+
+
+# Two clips on V1 sharing one source; "other" (0-5 s) is selected, "target" (10-13 s) is addressed. The job's
+# selection and the final selection are written to EDITS.
+SELECTABLE = """
+var ProjectItemType = {BIN: 1, ROOT: 2, CLIP: 3};
+var DATA = fs.existsSync(STATE) ? JSON.parse(fs.readFileSync(STATE, "utf8"))
+    : {clips: [["other", "o", 0, 5, 0, true], ["target", "t", 10, 13, 0, false]], marks: []};
+var MARKS = DATA.marks.map(function (t) { return {start: {seconds: t}}; });
+var markers = {getFirstMarker: function () { return MARKS[0] || null; },
+    getNextMarker: function (m) { return MARKS[MARKS.indexOf(m) + 1] || null; }};
+var source = {name: "a.mp4", type: 3, nodeId: "m", getMediaPath: function () { return "/m/a.mp4"; },
+    getMarkers: function () { return markers; }};
+function piece(name, id, from, to, inAt) {
+    return {name: name, nodeId: id, start: {seconds: from}, end: {seconds: to}, inPoint: {seconds: inAt},
+        outPoint: {seconds: inAt + to - from}, projectItem: source, selected: false,
+        components: {numItems: 0}, getSpeed: function () { return 1; }, isSpeedReversed: function () { return false; },
+        isSelected: function () { return this.selected; }, setSelected: function (on) { this.selected = on; }};
+}
+var clips = DATA.clips.map(function (c) {
+    var made = piece(c[0], c[1], c[2], c[3], c[4]);
+    made.selected = c[5];
+    return made;
+});
+var lane = {name: "V1"};
+Object.defineProperty(lane, "clips", {get: function () {
+    var list = {numItems: clips.length};
+    clips.forEach(function (c, i) { list[i] = c; });
+    return list;
+}});
+function chosen() {
+    return clips.filter(function (c) { return c.selected; }).map(function (c) { return c.name; }).join(",");
+}
+process.on("exit", function () {
+    fs.appendFileSync(EDITS, "selected " + chosen() + "\\n");
+    fs.writeFileSync(STATE, JSON.stringify({marks: MARKS.map(function (m) { return m.start.seconds; }),
+        clips: clips.map(function (c) {
+            return [c.name, c.nodeId, c.start.seconds, c.end.seconds, c.inPoint.seconds, c.selected];
+        })}));
+});
+var main = {name: "Main", sequenceID: "s1", projectItem: {nodeId: "p"}, timebase: "10160640000", end: "0",
+    videoTracks: {numTracks: 1, 0: lane}, audioTracks: {numTracks: 0},
+    performSceneEditDetectionOnSelection: function (action) {
+        fs.appendFileSync(EDITS, "ran " + action + " on " + chosen() + "\\n");
+        if (action === "ApplyCuts") {
+            var head = piece("target", "t", 10, 11, 0);
+            head.selected = true;
+            clips.splice(1, 1, head, piece("target", "n1", 11, 12, 1), piece("target", "n2", 12, 13, 2));
+        } else {
+            MARKS.push({start: {seconds: 1}}, {start: {seconds: 2}});
+        }
+        return true;
+    }};
+var app = {project: {path: "/p.prproj", rootItem: {type: 2, children: {numItems: 0}},
+    sequences: {numSequences: 1, 0: main}, activeSequence: main, openSequence: function () {},
+    getAllLumetriPresetsList: function () { return ["Cinespace 100", "Cinespace 25"]; },
+    applyLumetriPreset: function (name) {
+        fs.appendFileSync(EDITS, "look " + name + " on " + chosen() + "\\n");
+        clips.forEach(function (c) {
+            if (c.selected) { c.components[c.components.numItems++] = {displayName: "Lumetri Color"}; }
+        });
+        return true;
+    }}};
+"""
+
+# A project whose AE import adds one item per composition of the .aep, as Premiere names them.
+AE_PROJECT = """
+var ProjectItemType = {BIN: 1, ROOT: 2, CLIP: 3};
+var root = {type: 2, name: "Root", nodeId: "r", children: {numItems: 0}};
+root.createBin = function (name) {
+    var made = {type: 1, name: name, nodeId: "b" + root.children.numItems, children: {numItems: 0}};
+    root.children[root.children.numItems++] = made;
+    return made;
+};
+var KNOWN = ["Main", "Pre"];
+function add(bin, name) {
+    var n = bin.children.numItems;
+    bin.children[bin.children.numItems++] = {type: 3, name: name + "/x.aep", nodeId: "c" + name,
+        getMediaPath: function () { return "/m/x.aep"; }};
+}
+var app = {project: {path: "/p.prproj", rootItem: root, sequences: {numSequences: 0},
+    importAllAEComps: function (path, bin) { KNOWN.forEach(function (name) { add(bin, name); }); },
+    importAEComps: function (path, names, bin) {
+        names.forEach(function (name) { if (KNOWN.indexOf(name) >= 0) { add(bin, name); } });
+    }}};
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class PremiereMlTest(unittest.TestCase):
+    def stub(self, body):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.edits = Path(folder.name) / "edits.txt"
+        self.edits.write_text("")
+        self.aep = Path(folder.name) / "x.aep"
+        self.aep.write_text("")
+        state = Path(folder.name) / "state.json"
+        patch = mock.patch.object(host, "relay", node_relay(
+            f"var EDITS = {json.dumps(str(self.edits))}, STATE = {json.dumps(str(state))};" + body))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def lines(self):
+        return self.edits.read_text().splitlines()
+
+    def assert_the_selection_followed_the_detection(self, ran):
+        """The detection saw the addressed clip alone; the first selection was back when the last job ended."""
+        lines = self.lines()
+        self.assertEqual([line for line in lines if line.startswith("ran")], [ran])
+        selected = [line for line in lines if line.startswith("selected")]
+        self.assertEqual((set(selected[:-1]), selected[-1]), ({"selected target"}, "selected other"))
+
+    def test_premiere_cuts_run_on_the_addressed_clip_alone_and_the_selection_comes_back(self):
+        self.stub(SELECTABLE)
+        done = host.scene_detect(None, 0, None, 1, None, "cuts", False, 60, "premiere")
+        self.assertEqual((done["cuts"], done["clips_after"], done["applied"]), ([11, 12], 3, "cuts"))
+        self.assert_the_selection_followed_the_detection("ran ApplyCuts on target")
+
+    def test_premiere_markers_are_read_back_as_timeline_seconds(self):
+        self.stub(SELECTABLE)
+        done = host.scene_detect(None, 0, None, 1, None, "markers", False, 60, "premiere")
+        self.assertEqual((done["cuts"], done["markers"]), ([11, 12], 2))
+        self.assert_the_selection_followed_the_detection("ran CreateMarkers on target")
+
+    def test_a_look_applies_to_the_addressed_clip_alone(self):
+        self.stub(SELECTABLE)
+        done = clip_tools.color(None, 0, None, 1, {}, 60, "Cinespace 25")
+        self.assertEqual((done["clip"], done["look"]), ("target", "Cinespace 25"))
+        self.assertEqual(self.lines(), ["look Cinespace 25 on target", "selected other"])
+
+    def test_the_looks_are_listed_and_an_unknown_one_is_refused(self):
+        self.stub(SELECTABLE)
+        self.assertEqual(clip_tools.color(None, 0, None, None, {}, 60, None, True)["looks"],
+                         ["Cinespace 100", "Cinespace 25"])
+        with self.assertRaisesRegex(RuntimeError, "no look named Nope"):
+            clip_tools.color(None, 0, None, 1, {}, 60, "Nope")
+        self.assertEqual(self.lines(), ["selected other", "selected other"])
+
+    def test_every_composition_of_an_after_effects_project_is_imported_with_its_id(self):
+        self.stub(AE_PROJECT)
+        done = host.import_files(None, "AE", 60, str(self.aep))
+        self.assertEqual([(i["name"], i["id"]) for i in done["imported"]],
+                         [("Main/x.aep", "cMain"), ("Pre/x.aep", "cPre")])
+
+    def test_named_compositions_only_and_an_unknown_one_fails(self):
+        self.stub(AE_PROJECT)
+        done = host.import_files(None, None, 60, str(self.aep), ["Pre"])
+        self.assertEqual([i["name"] for i in done["imported"]], ["Pre/x.aep"])
+        with self.assertRaisesRegex(RuntimeError, "imported no compositions"):
+            host.import_files(None, None, 60, str(self.aep), ["Nope"])
 
 
 class MailboxTest(unittest.TestCase):

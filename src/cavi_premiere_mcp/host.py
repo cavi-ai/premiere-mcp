@@ -556,9 +556,17 @@ def sequence_open(sequence, timeout):
     return invoke("sequence_open", {"sequence": sequence}, timeout)
 
 
-def import_files(files, bin, timeout):
-    paths = [str(existing(file)) for file in files]
-    return invoke("import", {"files": paths, "bin": bin}, timeout)
+def import_files(files, bin, timeout, ae_project=None, comps=None):
+    """Import files, or the compositions of an After Effects project (comps; all when omitted), into a bin."""
+    if (files is None) == (ae_project is None):
+        raise ValueError("Give exactly one of files or ae_project")
+    if comps is not None and ae_project is None:
+        raise ValueError("comps needs ae_project")
+    if ae_project is not None:
+        args = {"ae_project": str(existing(ae_project, ".aep")), "comps": comps or [], "bin": bin}
+    else:
+        args = {"files": [str(existing(file)) for file in files], "bin": bin}
+    return invoke("import", args, timeout)
 
 
 def transitions(timeout):
@@ -940,9 +948,50 @@ def video_clip(listed, sequence, track, at, position_index, kind="video"):
     return clip
 
 
-def scene_detect(sequence, track, at, position_index, threshold, apply, include_audio, timeout):
-    """Cut times inside a placed clip, as timeline seconds; optionally razor or mark them."""
+SCENE_ACTIONS = {"cuts": "ApplyCuts", "markers": "CreateMarkers"}
+
+
+def premiere_scenes(sequence, track, at, position_index, apply, timeout):
+    """Premiere's scene edit detection on one clip. It acts on the selection and adds markers only after the
+    starting job returns, so the clip stays selected across jobs until the markers stop growing."""
+    base = {"sequence": sequence, "track": track, "at": at, "position_index": position_index,
+            "action": SCENE_ACTIONS[apply]}
+    with exclusive(timeout):
+        started = invoke("scene_edit", {**base, "mode": "run"}, timeout)
+        clip = {"name": started["clip"], **{k: started[k] for k in (
+            "start", "end", "first", "last", "ratio", "reversed", "markers_before", "selection")}}
+
+        def finish(restore):
+            return invoke("scene_edit", {**base, "mode": "finish", "clip": clip, "restore": restore}, timeout)
+        try:
+            seen, stop = -1, time.monotonic() + 10
+            while apply == "markers":
+                count = finish(False)["markers"]
+                if (count and count == seen) or time.monotonic() > stop:
+                    break
+                seen = count
+                time.sleep(0.5)
+        except BaseException:
+            finish(True)
+            raise
+        return finish(True)
+
+
+def scene_detect(sequence, track, at, position_index, threshold, apply, include_audio, timeout, engine="ffmpeg"):
+    """Cut times inside a placed clip, as timeline seconds; optionally razor or mark them. engine premiere runs
+    Premiere's own scene edit detection, which always edits: cuts split the clip, markers go on its project item."""
     one_clip(at, position_index)
+    if engine == "premiere":
+        foreign = sorted(k for k, v in {"threshold": threshold, "include_audio": include_audio or None}.items()
+                         if v is not None)
+        if foreign:
+            raise ValueError("Not valid for engine=premiere: " + ", ".join(foreign))
+        if apply not in SCENE_ACTIONS:
+            raise ValueError("engine=premiere needs apply=cuts or apply=markers")
+        found = premiere_scenes(sequence, track, at, position_index, apply, timeout)
+        return {"clip": found["clip"], "cuts": found["cuts"], "applied": apply,
+                "clips_after": found.get("clips_after"), "markers": found.get("markers")}
+    threshold = 0.3 if threshold is None else threshold
     if include_audio and apply != "cuts":
         raise ValueError("include_audio needs apply=cuts")
     with exclusive(timeout):

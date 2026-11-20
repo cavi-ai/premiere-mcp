@@ -112,6 +112,26 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
 28. A 480 × 270 movie with sample aspect 2 reads `VideoInfo` `480 x 270 (2.0)` and
     `getFootageInterpretation().pixelAspectRatio` 2; a square-pixel sequence reads `videoPixelAspectRatio`
     `1:1`. QE `exportFramePNG` writes RGBA, so a clip's opacity is read from the alpha channel.
+29. QE project `newBlackVideo(width, height, fps, parNum, parDen)` and `newTransparentVideo` (same
+    arguments) return true and add "Black Video" or "Transparent Video" at the project root, readable
+    through the DOM in the next call: `newTransparentVideo(1280, 720, 25, 1, 1)` read `1280 x 720 (1.0),
+    Straight Alpha`, and every new still item has a 5 s out point. `newBarsAndTone(w, h, fps, parNum,
+    parDen, rate)` ignores its size and rate: 1280x720 at 25, 640x360 at 29.97 and 640x360 at 25 all gave
+    "HD Bars and Tone", `1920 x 1080 (1.2121)`, 4.97 s. The reflected argument names are `p0` to `p4` for
+    the black, color matte and transparent calls and `p0` to `p5` for bars and tone and the universal
+    counting leader.
+30. After a project is closed and another is created at the same path in the same Premiere Pro session, QE
+    project calls such as `newBlackVideo` still return true but add the item to the earlier project: `qe.project.numItems`
+    starts at the earlier count and the DOM shows no new item. A project at a new path behaves correctly.
+31. QE sequence `getYellowBarTimes()` on a sequence of one unrendered H.264 clip (0 to 3 s) returned an
+    array of two `QETime` objects (`secs`, `ticks`, `timecode`, `frames`) for 0 and 3.00000023841858 s, so
+    ranges are flat start, end pairs; `getRedBarTimes()` and `getGreenBarTimes()` returned empty arrays.
+    `renderAll`, `renderPreview` and `getRedBarTimes` reflect no arguments.
+32. Not measured on 27.0.0: `renderAll` and `renderPreview` on a sequence, `newColorMatte` (how a color is
+    given) and `newUniversalCountingLeader`. Premiere Pro stopped answering the relay after a
+    `newUniversalCountingLeader(640, 360, 25, 1, 1, 48000)` call and had not answered 30 minutes later, so
+    `premiere_item_new` offers bars and tone, black video and transparent video only and no render tool is
+    registered.
 
 ## Tool behavior
 
@@ -173,9 +193,23 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
   Blurriness; Transform has Scale Width and Scale Height with Uniform Scale off.
 - `premiere_clip_fit` computes the scale from the source frame size (a 1280x720 clip in a 640x360 sequence
   gets Scale 50 for fit, 50 for fill) because the QE `scaleToFrameSize` flag cannot be set.
-- `premiere_scene_detect` reads the clip's source with ffmpeg because `performSceneEditDetectionOnSelection`
-  returned true and changed nothing (ApplyCuts and CreateMarkers, ProRes and H.264 clips, after 20 s). A
-  clip of three 1 s colors placed at 8 s reported cuts at 9.0 and 10.0, and `cuts` split it there.
+- `premiere_scene_detect` `engine` `ffmpeg` reads the clip's source with ffmpeg. A clip of three 1 s colors
+  placed at 8 s reported cuts at 9.0 and 10.0, and `cuts` split it there.
+- `engine` `premiere` runs `sequence.performSceneEditDetectionOnSelection(action)`, whose only argument is
+  `clipOperation` (`ApplyCuts` or `CreateMarkers`). It acts on the selected clips, returns true whatever it
+  did, and detects nothing on a clip of three flat 1 s colors; on a 3 s H.264 clip of three 1 s test
+  patterns it found the cuts at 1 s and 2 s. `ApplyCuts` splits the clip and its linked audio at once
+  (3 video and 3 audio clips). `CreateMarkers` adds Segmentation markers with an empty name to the clip's
+  project item (`getMarkers()`) at 1 s and 2 s, not to the sequence, and only after the call returns, so
+  the selection must stay until they exist.
+- `app.project.getAllLumetriPresetsList()` returns the 325 look names as an array of strings, with
+  duplicates across camera families; `applyLumetriPreset(name)` takes one string, acts on the selected
+  clips, returns true and appends a new Lumetri Color component to each, so a second look stacks a second
+  component. `getLumetriPresetsForFolderList` takes one argument.
+- `app.project.importAllAEComps(aepPath, bin)` and `importAEComps(aepPath, compNames, bin)` import each
+  composition as a project item named `<comp>/<project>.aep` whose media path is the `.aep`. Importing
+  all of one project gave 8 items (`Main B` twice); an unknown composition name imports nothing and
+  raises no error. An import starts an `aerendercore` process under Dynamic Link.
 - `premiere_tracks` adds stereo audio tracks and appends them after the last track.
 - `premiere_frame_export` writes `<folder>/<prefix>_<n>_<time>s.png` and checks each file and its PNG
   header on disk; a time at or past the sequence end is refused.

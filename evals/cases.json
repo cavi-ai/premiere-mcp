@@ -100,5 +100,11 @@
   {"id": "transition-add-timeout-floor", "tool": "premiere_transition_add", "arguments": {"timeout": 29},
    "kind": "invalid", "error": "greater than or equal to 30"},
   {"id": "transitions-timeout-floor", "tool": "premiere_transitions", "arguments": {"timeout": 29}, "kind": "invalid",
-   "error": "greater than or equal to 30"}
+   "error": "greater than or equal to 30"},
+  {"id": "loudness-refuses-relative-file", "tool": "premiere_loudness", "arguments": {"file": "m.wav"},
+   "kind": "safety", "error": "absolute path"},
+  {"id": "loudness-refuses-preset-with-explicit-target", "tool": "premiere_loudness",
+   "arguments": {"file": "/m.wav", "target": "podcast", "target_lufs": -20}, "kind": "invalid", "error": "not both"},
+  {"id": "item-new-needs-a-kind", "tool": "premiere_item_new", "arguments": {}, "kind": "invalid",
+   "error": "kind"}
 ]

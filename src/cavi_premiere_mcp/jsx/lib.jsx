@@ -551,3 +551,34 @@ function field(xml, name) {
     var found = new RegExp("Column\\.Intrinsic\\." + name + ">([^<]*)<").exec(xml);
     return found ? found[1] : null;
 }
+
+// Select exactly the clips whose ids are given, on every track of a sequence; returns the ids selected before.
+function setSelection(sequence, ids) {
+    var before = {};
+    function mark(lane) {
+        each(lane.clips, function (clip) {
+            var want = ids[clip.nodeId] === true, now = !!clip.isSelected();
+            if (now) {
+                before[clip.nodeId] = true;
+            }
+            if (now !== want) {
+                clip.setSelected(want, true);
+            }
+        });
+    }
+    each(sequence.videoTracks, mark);
+    each(sequence.audioTracks, mark);
+    return before;
+}
+
+// Run action with only this clip selected, then put the earlier selection back.
+function onlySelected(sequence, clip, action) {
+    var only = {}, before;
+    only[clip.nodeId] = true;
+    before = setSelection(sequence, only);
+    try {
+        return action();
+    } finally {
+        setSelection(sequence, before);
+    }
+}

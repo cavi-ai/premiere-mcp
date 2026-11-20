@@ -1,6 +1,6 @@
 # Tools
 
-The server registers 45 tools. This page lists every tool with its parameters, defaults and result
+The server registers 47 tools. This page lists every tool with its parameters, defaults and result
 fields. A test fails when a tool, a parameter, a default or a result field here differs from the
 registered catalog.
 
@@ -33,7 +33,7 @@ required.
 | `premiere_presets` | read | none | Lists export and sequence presets. |
 | `premiere_effects` | read | 300 | Lists the video and audio effects Premiere offers. |
 | `premiere_find` | read | 300 | Finds project items and placed clips by name or path. |
-| `premiere_import` | write | 300 | Imports files into a bin. |
+| `premiere_import` | write | 300 | Imports files or After Effects compositions into a bin. |
 | `premiere_items` | destructive | 300 | Renames, moves, labels, subclips, interprets, proxies or deletes a project item. |
 | `premiere_bins` | destructive | 300 | Creates, renames, deletes bins and moves items into them. |
 | `premiere_media_replace` | write | 300 | Points a project item at a new file or refreshes it. |
@@ -49,14 +49,14 @@ required.
 | `premiere_clip_fit` | write | 300 | Scales a clip to fit or fill the frame. |
 | `premiere_clip_props` | write | 300 | Sets Motion, Opacity and Volume, static or keyframed. |
 | `premiere_fade` | destructive | 300 | Fades a clip in and out. |
-| `premiere_color` | destructive | 300 | Basic Lumetri Color correction. |
+| `premiere_color` | destructive | 300 | Basic Lumetri Color correction and Lumetri looks. |
 | `premiere_effect_add` | write | 300 | Adds an effect to a clip. |
 | `premiere_effect_set` | write | 300 | Sets or lists component parameters. |
 | `premiere_transition_add` | write | 300 | Adds a transition to a clip edge. |
 | `premiere_razor` | destructive | 300 | Splits clips at times. |
 | `premiere_gaps` | destructive | 300 | Lists or closes empty gaps. |
 | `premiere_range_remove` | destructive | 300 | Cuts one or many time ranges out of every unlocked track. |
-| `premiere_scene_detect` | write | 600 | Finds hard cuts in a clip's media and optionally splits or marks them. |
+| `premiere_scene_detect` | write | 600 | Finds hard cuts in a clip, with ffmpeg or Premiere, and optionally splits or marks them. |
 | `premiere_silence` | destructive | 600 | Finds silences in an audio clip's media and optionally marks or cuts them out. |
 | `premiere_transcript` | write | 1800 | Transcribes an audio clip with whisper into timeline segments and words, an `.srt` and captions. |
 | `premiere_markers_add` | write | 300 | Adds sequence markers or a beat grid. |
@@ -68,6 +68,8 @@ required.
 | `premiere_export` | destructive | 1800 | Exports a sequence with a preset. |
 | `premiere_encode` | destructive | 1800 | Queues a sequence in Media Encoder. |
 | `premiere_interchange` | destructive | 600 | Exports FCP XML, AAF or OMF, or imports an FCP XML. |
+| `premiere_loudness` | destructive | 600 | Measures a file's loudness against a target and optionally writes a normalized copy. |
+| `premiere_item_new` | write | 300 | Creates bars and tone, black video or transparent video in the project. |
 
 ### `premiere_status`
 
@@ -195,12 +197,18 @@ Returns `items`, `clips`, `warnings`.
 
 ### `premiere_import`
 
-Imports files into a bin, created when missing; the project root when `bin` is empty.
+Imports files, or the compositions of an After Effects project, into a bin, created when missing; the
+project root when `bin` is empty. Give exactly one of `files` or `ae_project`. A composition becomes one
+project item named `<comp>/<project>.aep`; a name the project does not hold imports nothing and fails.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `files` | list of string | required | At least one absolute path. |
+| `files` | list of string | none | At least one absolute path. |
 | `bin` | string | none | Target bin name. |
+| `ae_project` | string | none | Absolute `.aep` path whose compositions to import. |
+| `comps` | list of string | none | Composition names to import from `ae_project`; all when omitted. |
+
+Each `imported` entry has `name`, `id` and `media_path`.
 
 Returns `bin`, `imported`, `warnings`.
 
@@ -473,6 +481,8 @@ Returns `clip`, `keyframes`, `warnings`.
 
 Basic color correction on a video clip with Lumetri Color, added when the clip has none. `exposure` is
 in stops from -5 to 5, `saturation` runs 0 to 200 (100 is neutral) and the others run -100 to 100.
+`look` applies a Lumetri look (preset) first; each look adds its own Lumetri Color component and the
+values go to the clip's first one. `list_looks` returns the look names and takes no other argument.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -486,12 +496,14 @@ in stops from -5 to 5, `saturation` runs 0 to 200 (100 is neutral) and the other
 | `tint` | number | none | Tint. |
 | `saturation` | number | none | Saturation. |
 | `vibrance` | number | none | Vibrance. |
+| `look` | string | none | Look name from `list_looks`, applied before the values. |
+| `list_looks` | boolean | `false` | Return the look names and nothing else. |
 | `track` | integer | `0` | Video track index. |
 | `at` | number | none | Address by time. |
 | `position_index` | integer | none | Address by place on the track. |
 | `sequence` | string | none | The sequence. |
 
-Returns `clip`, `applied`, `warnings`.
+Returns `clip`, `applied`, `look`, `looks`, `warnings`.
 
 ### `premiere_effect_add`
 
@@ -602,18 +614,23 @@ Returns `sequence`, `mode`, `start`, `end`, `ranges`, `removed`, `moved`, `seque
 
 ### `premiere_scene_detect`
 
-Finds hard cuts inside a placed video clip from its media (an ffmpeg scene score above `threshold`)
-and returns them as timeline seconds, through the clip's speed and direction. Only the clip's source
-range is decoded. Needs `ffmpeg`.
+Finds hard cuts inside a placed video clip and returns them as timeline seconds, through the clip's
+speed and direction. `engine` `ffmpeg` reads the media (an ffmpeg scene score above `threshold`), decodes
+only the clip's source range and needs `ffmpeg`. `engine` `premiere` runs Premiere's own scene edit
+detection on that clip alone, restores the selection after, and always edits: `cuts` splits the clip (and
+its linked audio) and `markers` adds markers to the clip's project item at source times, reported here
+on the timeline; a marker the item already had is not reported again. It refuses `apply` `report`,
+`threshold` and `include_audio`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
 | `track` | integer | `0` | Video track index. |
 | `at` | number | none | Address by time. |
 | `position_index` | integer | none | Address by place on the track. |
-| `threshold` | number | `0.3` | Scene score between 0 and 1, exclusive. |
+| `threshold` | number | none | Scene score between 0 and 1, exclusive; 0.3 with `ffmpeg`. |
 | `apply` | `report`, `cuts`, `markers` | `"report"` | Only report, split the clip at each cut, or add a marker per cut. |
-| `include_audio` | boolean | `false` | With `cuts`, split the audio tracks too. |
+| `include_audio` | boolean | `false` | With `cuts`, split the audio tracks too (`ffmpeg`). |
+| `engine` | `ffmpeg`, `premiere` | `"ffmpeg"` | Where the cuts come from. |
 | `sequence` | string | none | The sequence. |
 
 Returns `clip`, `cuts`, `applied`, `clips_after`, `markers`, `warnings`.
@@ -811,3 +828,48 @@ use is refused: `audio_rate` and `bits` are for AAF and OMF, and `import_xml` ta
 | `sequence` | string | none | The sequence to export. |
 
 Returns `action`, `path`, `size`, `sequence`, `imported`, `warnings`.
+
+### `premiere_loudness`
+
+Measures the integrated loudness (LUFS), loudness range (LU) and true peak (dBTP) of a file's first audio
+stream with ffmpeg `ebur128=peak=true`, and compares them with a target. Presets: `streaming` -14 LUFS
+and -1 dBTP, `podcast` -16 and -1, `ebu_r128` -23 and -1, `atsc_a85` -24 and -2; without `target` and
+`target_lufs` the target is `streaming`. `target_lufs` gives an explicit target with `max_true_peak`
+(-1 when omitted); a preset together with either is refused. `passes` is true when the integrated loudness
+is within `tolerance` LU of the target and the true peak is at or below the ceiling. `normalize` writes a
+two-pass `loudnorm` copy at that absolute path with the video stream copied and the audio at the
+original sample rate, and reports the copy's measured values and `passes` under `normalized`; an existing
+file is refused unless `replace` is true. Without `normalize` nothing is written. Needs `ffmpeg`; no
+Premiere Pro.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `file` | string | required | Absolute path of the media to measure. |
+| `target` | `streaming`, `podcast`, `ebu_r128`, `atsc_a85` | none | Preset target. |
+| `target_lufs` | number | none | Explicit integrated loudness target, -70 to -5. |
+| `max_true_peak` | number | none | Explicit true peak ceiling in dBTP, -9 to 0; -1 with `target_lufs`. |
+| `tolerance` | number | `1` | Allowed distance from the target, in LU, 0 to 12. |
+| `normalize` | string | none | Absolute path of the normalized copy. |
+| `replace` | boolean | `false` | Overwrite an existing `normalize` file. |
+
+Returns `file`, `integrated_lufs`, `loudness_range_lu`, `true_peak_dbtp`, `target_lufs`, `max_true_peak`, `tolerance`, `passes`, `normalized`, `warnings`.
+
+### `premiere_item_new`
+
+Creates a project item through the QE project: `bars_and_tone`, `black_video` or `transparent_video`.
+Width, height and frame rate default to the sequence's; `bars_and_tone` ignores them and is Premiere's
+"HD Bars and Tone" (1920x1080). `name` renames the item and `bin` moves it into a bin, created
+when missing. The item is found by comparing the project's items before and after; a call that adds none
+is an error.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `kind` | `bars_and_tone`, `black_video`, `transparent_video` | required | The item to create. |
+| `name` | string | none | Name of the item. |
+| `bin` | string | none | Bin to move it into. |
+| `width` | integer | none | Frame width. |
+| `height` | integer | none | Frame height. |
+| `fps` | number | none | Frame rate. |
+| `sequence` | string | none | The sequence whose size and rate are the defaults. |
+
+Returns `name`, `id`, `kind`, `bin`, `warnings`.
