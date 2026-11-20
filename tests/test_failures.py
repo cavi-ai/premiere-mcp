@@ -626,6 +626,87 @@ class SilenceTest(unittest.TestCase):
                     self.assertEqual(found["silences"], silences)
 
 
+WHISPER_JSON = {"language": "en", "segments": [
+    {"start": 0.5, "end": 2.0, "text": " Hello there",
+     "words": [{"word": " Hello", "start": 0.5, "end": 1.0}, {"word": " there", "start": 1.2, "end": 2.0}]},
+    {"start": 3.0, "end": 4.0, "text": " Bye",
+     "words": [{"word": " Bye", "start": 3.0, "end": 4.0}]}]}
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is required")
+class TranscriptTest(unittest.TestCase):
+    """Whisper's times land on the timeline through the clip's speed and direction, and the .srt carries them."""
+
+    def transcribe(self, speed, reversed_, model="base"):
+        with tempfile.TemporaryDirectory() as folder:
+            talk, srt = SilenceTest.talk(folder), Path(folder) / "out" / "talk.srt"
+            (Path(folder) / "model").mkdir()
+            tool = Path(folder) / "bin" / ("mlx_audio.stt.generate" if model == "folder" else "whisper")
+            tool.parent.mkdir()
+            if model == "folder":
+                model = str(Path(folder) / "model")
+                # Like the real command: fails without the libomp variable, writes <output-path>.json.
+                tool.write_text(f"#!{sys.executable}\nimport json, os, sys\nargs = sys.argv\n"
+                                "if os.environ.get('KMP_DUPLICATE_LIB_OK') != 'TRUE' or "
+                                "not os.path.isdir(args[args.index('--model') + 1]):\n    sys.exit(1)\n"
+                                f"open(args[args.index('--output-path') + 1] + '.json', 'w').write(json.dumps("
+                                f"{WHISPER_JSON!r}))\n")
+            else:
+                tool.write_text(f"#!{sys.executable}\nimport json, pathlib, sys\nargs = sys.argv\n"
+                                "out = pathlib.Path(args[args.index('--output_dir') + 1]) / "
+                                f"(pathlib.Path(args[1]).stem + '.json')\nout.write_text(json.dumps({WHISPER_JSON!r}))\n")
+            tool.chmod(0o755)
+            clip = {"name": "talk", "start": 10, "end": 10 + 5 * 100 / speed, "in_point": 0.5, "out_point": 5.5,
+                    "speed": speed, "reversed": reversed_, "media_path": str(talk)}
+            listed = [{"name": "S", "id": "s1", "fps": 25, "video": [], "audio": [{"clips": [clip]}]}]
+            with mock.patch.object(host, "inspect", lambda sequence, timeout, **_: {"sequences": listed}), \
+                    mock.patch.dict(os.environ, {"PATH": str(tool.parent) + ":" + os.environ["PATH"]}):
+                found = timeline.transcript("s1", 0, 10.5, None, model, None, str(srt), False, 60)
+            return found, srt.read_text(encoding="utf-8")
+
+    def test_a_model_folder_runs_through_mlx_audio_on_a_retimed_clip(self):
+        found, srt = self.transcribe(200, True, "folder")
+        self.assertEqual([(w["word"], w["start"], w["end"]) for w in found["words"]],
+                         [("Bye", 10.5, 11.0), ("there", 11.5, 11.9), ("Hello", 12.0, 12.25)])
+        self.assertEqual(srt.splitlines()[1], "00:00:10,500 --> 00:00:11,000")
+
+    def test_a_missing_model_folder_or_unknown_name_is_refused_before_the_app_is_reached(self):
+        with mock.patch.object(host, "relay", reached_the_app), mock.patch.object(host, "inspect", reached_the_app):
+            with self.assertRaisesRegex(FileNotFoundError, "No model folder"):
+                timeline.transcript("s1", 0, 1, None, "/no/such/model", None, None, False, 60)
+            with self.assertRaisesRegex(ValueError, "Unknown whisper model"):
+                timeline.transcript("s1", 0, 1, None, "huge", None, None, False, 60)
+
+    def test_the_model_defaults_to_the_environment_variable(self):
+        with mock.patch.dict(os.environ, {"CAVI_WHISPER_MODEL": "/no/such/model"}), \
+                self.assertRaisesRegex(FileNotFoundError, "No model folder"):
+            timeline.transcript("s1", 0, 1, None, None, None, None, False, 60)
+
+    def test_times_follow_the_clip_forward_at_normal_speed(self):
+        found, srt = self.transcribe(100, False)
+        self.assertEqual(found["language"], "en")
+        self.assertEqual(found["segments"], [{"start": 10.5, "end": 12.0, "text": "Hello there"},
+                                             {"start": 13.0, "end": 14.0, "text": "Bye"}])
+        self.assertEqual([(w["word"], w["start"], w["end"]) for w in found["words"]],
+                         [("Hello", 10.5, 11.0), ("there", 11.2, 12.0), ("Bye", 13.0, 14.0)])
+        self.assertEqual(srt, "1\n00:00:10,500 --> 00:00:12,000\nHello there\n\n"
+                              "2\n00:00:13,000 --> 00:00:14,000\nBye\n\n")
+
+    def test_times_follow_the_clip_reversed_at_double_speed(self):
+        found, srt = self.transcribe(200, True)
+        self.assertEqual(found["segments"], [{"start": 10.5, "end": 11.0, "text": "Bye"},
+                                             {"start": 11.5, "end": 12.25, "text": "Hello there"}])
+        self.assertEqual([(w["word"], w["start"], w["end"]) for w in found["words"]],
+                         [("Bye", 10.5, 11.0), ("there", 11.5, 11.9), ("Hello", 12.0, 12.25)])
+        self.assertEqual(srt, "1\n00:00:10,500 --> 00:00:11,000\nBye\n\n"
+                              "2\n00:00:11,500 --> 00:00:12,250\nHello there\n\n")
+
+    def test_captions_without_srt_are_refused_before_the_app_is_reached(self):
+        with mock.patch.object(host, "relay", reached_the_app), mock.patch.object(host, "inspect", reached_the_app):
+            with self.assertRaisesRegex(ValueError, "captions needs srt"):
+                timeline.transcript("s1", 0, 1, None, "base", None, None, True, 60)
+
+
 ENCODER = """
 var handlers = {};
 var main = {name: "Main", sequenceID: "s1", projectItem: {nodeId: "p1"}, timebase: "10160640000",

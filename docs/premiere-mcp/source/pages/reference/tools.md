@@ -1,6 +1,6 @@
 # Tools
 
-The server registers 46 tools. This page lists every tool with its parameters, defaults and result
+The server registers 47 tools. This page lists every tool with its parameters, defaults and result
 fields. A test fails when a tool, a parameter, a default or a result field here differs from the
 registered catalog.
 
@@ -58,6 +58,7 @@ required.
 | `premiere_range_remove` | destructive | 300 | Cuts one or many time ranges out of every unlocked track. |
 | `premiere_scene_detect` | write | 600 | Finds hard cuts in a clip, with ffmpeg or Premiere, and optionally splits or marks them. |
 | `premiere_silence` | destructive | 600 | Finds silences in an audio clip's media and optionally marks or cuts them out. |
+| `premiere_transcript` | write | 1800 | Transcribes an audio clip with whisper into timeline segments and words, an `.srt` and captions. |
 | `premiere_markers_add` | write | 300 | Adds sequence markers or a beat grid. |
 | `premiere_markers_edit` | destructive | 300 | Lists, updates or deletes sequence markers. |
 | `premiere_mogrt_add` | write | 300 | Places a Motion Graphics template and sets its text. |
@@ -654,6 +655,33 @@ and report the silences on the frame grid where they were cut. Needs `ffmpeg`.
 | `sequence` | string | none | The sequence. |
 
 Returns `clip`, `silences`, `applied`, `markers`, `removed`, `moved`, `sequence_end`, `warnings`.
+
+### `premiere_transcript`
+
+Transcribes the used range of a placed audio clip (the first audio stream, extracted by `ffmpeg` to
+16 kHz mono) and returns segments and words as timeline seconds, through the clip's speed and direction.
+`srt` writes the segments as an `.srt` in timeline seconds; `captions` imports that file as a caption
+track from time 0 through the `premiere_captions` path and needs `srt`. A `model` name runs the
+`whisper` command (openai-whisper), which downloads a model it does not have yet; an absolute path to a
+local model folder runs `mlx_audio.stt.generate` (mlx-audio) on that folder. A missing folder or an
+unknown name is refused before Premiere Pro is called. Without `model`, the `CAVI_WHISPER_MODEL`
+environment variable is used, else `base`.
+
+To cut by text, pass the `start` and `end` of the words to remove as `ranges` of `premiere_range_remove`:
+one job removes them from every unlocked track.
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `track` | integer | `0` | Audio track index. |
+| `at` | number | none | Address by time. |
+| `position_index` | integer | none | Address by place on the track. |
+| `model` | string | none | A whisper model name (`tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large`, `large-v1`, `large-v2`, `large-v3`, `large-v3-turbo`, `turbo`) or an absolute path to a local model folder. |
+| `language` | string | none | Spoken language code; detected when omitted. |
+| `srt` | string | none | Absolute path of the `.srt` to write. |
+| `captions` | boolean | `false` | Import the `.srt` as a caption track. |
+| `sequence` | string | none | The sequence. |
+
+Returns `clip`, `language`, `segments`, `words`, `srt`, `captions`, `warnings`.
 
 ### `premiere_markers_add`
 

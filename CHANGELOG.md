@@ -19,6 +19,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_effect_set` `remove` and `premiere_transition_add` `remove` delete an effect or the transition at a clip edge.
 - `premiere_range_remove` takes `ranges` to cut many ranges in one job and reports each range on the frame grid; ranges that overlap are refused.
 - `premiere_silence` finds the silences in a placed audio clip through its speed and direction, and reports, marks, lifts or extracts them in one job.
+- `premiere_transcript` transcribes a placed audio clip with local whisper, or an mlx-audio model folder, into segments and words in timeline seconds, and writes an `.srt` or imports it as captions; word times feed `premiere_range_remove` `ranges`; `CAVI_WHISPER_MODEL` sets the default model.
 - `premiere_loudness` measures a file's integrated loudness, loudness range and true peak against a preset or explicit target, and `normalize` writes a two-pass loudnorm copy.
 - `premiere_item_new` creates bars and tone, black video or transparent video in the project.
 - A `pin-core` workflow opens a pull request that locks each new cavi-mcp-core release.

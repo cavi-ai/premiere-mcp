@@ -869,6 +869,63 @@ def silence_ranges(media, noise_db, min_seconds, timeout, start, end):
     return [(max(a, start), min(b, end)) for a, b in zip(starts, ends + [end] * (len(starts) - len(ends)))]
 
 
+WHISPER_MODELS = ("tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large",
+                  "large-v1", "large-v2", "large-v3", "large-v3-turbo", "turbo")
+
+
+def speech_tool(model):
+    """The whisper command for a model name, or the mlx-audio command for a model folder."""
+    command = "mlx_audio.stt.generate" if isinstance(model, Path) else "whisper"
+    found = shutil.which(command, path=os.environ.get("PATH", "") + ":/opt/homebrew/bin:/usr/local/bin")
+    if not found:
+        raise ValueError("Install mlx-audio to transcribe with a local model folder" if isinstance(model, Path)
+                         else "Install whisper (openai-whisper) to transcribe")
+    return found
+
+
+def speech_model(model):
+    """A model name from CAVI_WHISPER_MODEL or base, or an existing local model folder as a Path."""
+    model = model or os.environ.get("CAVI_WHISPER_MODEL") or "base"
+    if model.startswith(("/", "~")):
+        folder = absolute(model)
+        if not folder.is_dir():
+            raise FileNotFoundError(f"No model folder at {folder}")
+        return folder
+    if model not in WHISPER_MODELS:
+        raise ValueError(f"Unknown whisper model {model}; use one of {', '.join(WHISPER_MODELS)} or an absolute "
+                         "path to a model folder")
+    return model
+
+
+def transcribe(media, start, end, model, language, timeout):
+    """Whisper's JSON for the first audio stream of a file from start to end; times in it count from start.
+    model is a name for the whisper command or a Path of a model folder for mlx-audio."""
+    tool = speech_tool(model)
+    with tempfile.TemporaryDirectory() as folder:
+        wav = Path(folder) / "audio.wav"
+        cut = run_sync([ffmpeg_tool("ffmpeg"), "-hide_banner", "-ss", str(start), "-i", str(media), "-t",
+                        str(end - start), "-vn", "-map", "0:a:0", "-ac", "1", "-ar", "16000", str(wav)], timeout)
+        if cut.returncode or not wav.is_file():
+            raise RuntimeError(f"ffmpeg could not read the audio of {media}: " + diagnostics(cut))
+        env = {**os.environ, "PATH": os.environ.get("PATH", "") + ":/opt/homebrew/bin:/usr/local/bin"}
+        if isinstance(model, Path):
+            out = Path(folder) / "t.json"
+            command = [tool, "--model", str(model), "--audio", str(wav), "--output-path", str(out.with_suffix("")),
+                       "--format", "json", "--gen-kwargs", '{"word_timestamps": true}']
+            # Homebrew numpy's OpenBLAS and torch each load libomp, and mlx-audio aborts at import without this.
+            env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        else:
+            out = Path(folder) / "audio.json"
+            command = [tool, str(wav), "--model", model, "--word_timestamps", "True", "--output_format", "json",
+                       "--output_dir", folder, "--fp16", "False"]
+        if language:
+            command += ["--language", language]
+        result = run_sync(command, timeout, env=env)
+        if result.returncode or not out.is_file():
+            raise RuntimeError("Transcription failed: " + diagnostics(result))
+        return json.loads(out.read_text(encoding="utf-8"))
+
+
 def video_clip(listed, sequence, track, at, position_index, kind="video"):
     """The clip of a video (or audio) track at a time or position in the first of the inspected sequences, or a
     ValueError."""
