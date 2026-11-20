@@ -16,8 +16,9 @@ license yourself. It sends no telemetry and uses no accounts.
   Graphics templates; set any component parameter, static or keyframed.
 - Transcribe a clip's dialogue into timeline words and captions, find silences and hard cuts (with
   ffmpeg or Premiere's own detection), cut time ranges out, close gaps, make Auto Reframe sequences.
-- Export a sequence with any export preset, queue it in Media Encoder, export PNG stills, measure a
-  master's loudness against a delivery target, and exchange sequences as FCP XML, AAF or OMF.
+- Report and render a sequence's unrendered ranges, export a sequence with any export preset, queue it in
+  Media Encoder, export PNG stills, measure a master's loudness against a delivery target, and exchange
+  sequences as FCP XML, AAF or OMF.
 - Run your own ExtendScript file in Premiere Pro.
 
 The [tools reference](../reference/tools.md) lists all 47 tools with their parameters and results.

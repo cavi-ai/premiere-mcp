@@ -4,6 +4,12 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+## 0.2.1 - 2026-11-20
+
+### Added
+
+- `premiere_render` reports a sequence's red and yellow render ranges in timeline seconds and renders the sequence.
+
 ## 0.2.0 - 2026-11-20
 
 ### Added
@@ -24,7 +30,6 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_transcript` transcribes a placed audio clip with local whisper, or an mlx-audio model folder, into segments and words in timeline seconds, and writes an `.srt` or imports it as captions; word times feed `premiere_range_remove` `ranges`; `CAVI_WHISPER_MODEL` sets the default model.
 - `premiere_loudness` measures a file's integrated loudness, loudness range and true peak against a preset or explicit target, and `normalize` writes a two-pass loudnorm copy.
 - `premiere_item_new` creates bars and tone, black video or transparent video in the project.
-- `premiere_render` reports a sequence's red and yellow render ranges in timeline seconds and renders the sequence.
 - A `pin-core` workflow opens a pull request that locks each new cavi-mcp-core release.
 
 ### Changed

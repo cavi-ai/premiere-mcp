@@ -57,7 +57,7 @@ This example cuts three shots and a score into a Premiere project with dissolves
 | Edit | Create sequences, place and trim clips, work with tracks, and cut silences or transcript ranges. |
 | Refine | Add transitions, adjust color, apply Lumetri looks and animate clip properties. |
 | Review | Inspect the project, transcribe dialogue into captions, find cuts and silences, and export still frames. |
-| Deliver | Check loudness against a delivery target, export a sequence or queue it in Media Encoder. |
+| Deliver | Render previews, check loudness against a delivery target, export a sequence or queue it in Media Encoder. |
 
 See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for the full set of operations and parameters.
 
