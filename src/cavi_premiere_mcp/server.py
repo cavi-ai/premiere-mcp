@@ -1,6 +1,6 @@
 """MCP server for Adobe Premiere Pro. A tool module registers its tools on app.mcp when imported."""
 
-from . import clip_tools, timeline, tools  # noqa: F401
+from . import clip_tools, qc, timeline, tools  # noqa: F401
 from .app import mcp
 
 
