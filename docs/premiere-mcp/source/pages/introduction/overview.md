@@ -9,13 +9,15 @@ license yourself. It sends no telemetry and uses no accounts.
 
 ## What it can do
 
-- Open, create, save and close projects; import media into bins; organize project items and bins.
+- Open, create, save and close projects; import media and After Effects compositions into bins; create
+  bars and tone, black video and transparent video; organize project items and bins.
 - Create and change sequences and tracks; place, trim, move, split, copy, slip and speed-change clips.
-- Add transitions, effects, fades, Lumetri Color corrections, markers, captions and Motion Graphics
-  templates; set any component parameter, static or keyframed.
-- Find hard cuts in a clip, close gaps, remove time ranges, make Auto Reframe sequences.
-- Export a sequence with any export preset, queue it in Media Encoder, export PNG stills, and exchange
-  sequences as FCP XML, AAF or OMF.
+- Add transitions, effects, fades, Lumetri Color corrections and looks, markers, captions and Motion
+  Graphics templates; set any component parameter, static or keyframed.
+- Transcribe a clip's dialogue into timeline words and captions, find silences and hard cuts (with
+  ffmpeg or Premiere's own detection), cut time ranges out, close gaps, make Auto Reframe sequences.
+- Export a sequence with any export preset, queue it in Media Encoder, export PNG stills, measure a
+  master's loudness against a delivery target, and exchange sequences as FCP XML, AAF or OMF.
 - Run your own ExtendScript file in Premiere Pro.
 
 The [tools reference](../reference/tools.md) lists all 47 tools with their parameters and results.
@@ -40,8 +42,8 @@ that no process still holds the output open and the frame count that `ffprobe` r
 
 ## What was checked
 
-The tools were run against Premiere Pro 26.5.2, Adobe Bridge 16.0.8 and Media Encoder 26.5.2 on
-macOS. Behavior that was measured rather than documented by Adobe is recorded in
+The tools were run against Premiere Pro 26.5.2 and 27.0.0, Adobe Bridge 16.0.8 and 17.0.0, and Media
+Encoder 26.5.2 and 27.0.0 on macOS. Behavior that was measured rather than documented by Adobe is recorded in
 [Premiere Pro behavior](../reference/premiere-behavior.md).
 
 ## Next

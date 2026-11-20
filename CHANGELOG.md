@@ -4,6 +4,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-20
+
 ### Added
 
 - `premiere_clip_place` takes `clips` to place many project items on one sequence in one job; an entry needs `item` and `at` and takes its other fields from the call; a missing track or item places nothing.
@@ -32,7 +34,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_transition_add` `transition`, `frames` and `alignment` default to none; an add uses Cross Dissolve, 12 frames and 0.5 when they are omitted.
 - A missing input file is `INPUT_NOT_FOUND`; a relay Bridge never ran is `RELAY_NOT_APPROVED` and a Premiere Pro that never answered is `PREMIERE_NOT_READY`, both `rejected`.
 - Results leave out optional fields the tool did not set.
-- Requires cavi-mcp-core 0.1.8; the lock that serializes Premiere Pro calls refuses a lock file that is a symbolic link.
+- `premiere_scene_detect` `threshold` defaults to none; the ffmpeg engine uses 0.3 when it is omitted.
+- `premiere_color` always returns `applied`, `{}` when only a look or the look list was asked for; `clip` is left out for `list_looks`.- Requires cavi-mcp-core 0.1.8; the lock that serializes Premiere Pro calls refuses a lock file that is a symbolic link.
 
 ### Fixed
 

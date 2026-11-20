@@ -5,7 +5,10 @@
 - macOS.
 - Adobe Premiere Pro 2026 or later and Adobe Bridge 2026 or later (Bridge runs the script relay).
   Adobe Media Encoder is needed only for `premiere_encode`.
-- FFmpeg (`ffprobe`, and `ffmpeg` for `premiere_scene_detect`) on `PATH`.
+- FFmpeg (`ffprobe`, and `ffmpeg` for `premiere_scene_detect`, `premiere_silence`,
+  `premiere_transcript` and `premiere_loudness`) on `PATH`.
+- For `premiere_transcript` only: the openai-whisper `whisper` command for a model name, or mlx-audio
+  (`mlx_audio.stt.generate`) for a local model folder.
 - Python 3.15 or later and [uv](https://docs.astral.sh/uv/).
 
 The package does not include or supply Adobe software or licenses. It does not sign in to Adobe

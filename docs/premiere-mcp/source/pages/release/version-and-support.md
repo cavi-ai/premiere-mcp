@@ -10,14 +10,16 @@ go to the latest minor release and `main`.
 
 ## Checked applications
 
-- Premiere Pro 26.5.2, Adobe Bridge 16.0.8 and Media Encoder 26.5.2 on macOS: the tools were run against
-  these versions.
+- Premiere Pro 26.5.2 and 27.0.0, Adobe Bridge 16.0.8 and 17.0.0, and Media Encoder 26.5.2 and 27.0.0 on
+  macOS: the tools were run against these versions.
 - The requirement is Premiere Pro 2026 or later and Adobe Bridge 2026 or later.
 
 ## Package requirements
 
 - Python 3.15 or later.
-- FFmpeg (`ffprobe`, and `ffmpeg` for `premiere_scene_detect`).
+- FFmpeg (`ffprobe`, and `ffmpeg` for `premiere_scene_detect`, `premiere_silence`, `premiere_transcript`
+  and `premiere_loudness`).
+- For `premiere_transcript`: openai-whisper for a model name, or mlx-audio for a local model folder.
 - The only supported platform is macOS.
 
 ## License and trademarks
