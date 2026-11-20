@@ -75,7 +75,7 @@ See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for 
 | `premiere_presets` | Lists export and sequence presets. |
 | `premiere_effects` | Lists the video and audio effects Premiere offers. |
 | `premiere_find` | Finds project items and placed clips by name or path. |
-| `premiere_import` | Imports files into a bin. |
+| `premiere_import` | Imports files or After Effects compositions into a bin. |
 | `premiere_items` | Renames, moves, labels, subclips, interprets, proxies or deletes a project item. |
 | `premiere_bins` | Creates, renames, deletes bins and moves items into them. |
 | `premiere_media_replace` | Points a project item at a new file or refreshes it. |
@@ -91,14 +91,14 @@ See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for 
 | `premiere_clip_fit` | Scales a clip to fit or fill the frame. |
 | `premiere_clip_props` | Sets Motion, Opacity and Volume, static or keyframed. |
 | `premiere_fade` | Fades a clip in and out. |
-| `premiere_color` | Basic Lumetri Color correction. |
+| `premiere_color` | Basic Lumetri Color correction and Lumetri looks. |
 | `premiere_effect_add` | Adds an effect to a clip. |
 | `premiere_effect_set` | Sets or lists component parameters. |
 | `premiere_transition_add` | Adds a transition to a clip edge. |
 | `premiere_razor` | Splits clips at times. |
 | `premiere_gaps` | Lists or closes empty gaps. |
 | `premiere_range_remove` | Cuts one or many time ranges out of every unlocked track. |
-| `premiere_scene_detect` | Finds hard cuts in a clip's media and optionally splits or marks them. |
+| `premiere_scene_detect` | Finds hard cuts in a clip, with ffmpeg or Premiere, and optionally splits or marks them. |
 | `premiere_silence` | Finds silences in an audio clip's media and optionally marks or cuts them out. |
 | `premiere_markers_add` | Adds sequence markers or a beat grid. |
 | `premiere_markers_edit` | Lists, updates or deletes sequence markers. |

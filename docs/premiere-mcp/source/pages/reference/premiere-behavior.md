@@ -173,9 +173,23 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
   Blurriness; Transform has Scale Width and Scale Height with Uniform Scale off.
 - `premiere_clip_fit` computes the scale from the source frame size (a 1280x720 clip in a 640x360 sequence
   gets Scale 50 for fit, 50 for fill) because the QE `scaleToFrameSize` flag cannot be set.
-- `premiere_scene_detect` reads the clip's source with ffmpeg because `performSceneEditDetectionOnSelection`
-  returned true and changed nothing (ApplyCuts and CreateMarkers, ProRes and H.264 clips, after 20 s). A
-  clip of three 1 s colors placed at 8 s reported cuts at 9.0 and 10.0, and `cuts` split it there.
+- `premiere_scene_detect` `engine` `ffmpeg` reads the clip's source with ffmpeg. A clip of three 1 s colors
+  placed at 8 s reported cuts at 9.0 and 10.0, and `cuts` split it there.
+- `engine` `premiere` runs `sequence.performSceneEditDetectionOnSelection(action)`, whose only argument is
+  `clipOperation` (`ApplyCuts` or `CreateMarkers`). It acts on the selected clips, returns true whatever it
+  did, and detects nothing on a clip of three flat 1 s colors; on a 3 s H.264 clip of three 1 s test
+  patterns it found the cuts at 1 s and 2 s. `ApplyCuts` splits the clip and its linked audio at once
+  (3 video and 3 audio clips). `CreateMarkers` adds Segmentation markers with an empty name to the clip's
+  project item (`getMarkers()`) at 1 s and 2 s, not to the sequence, and only after the call returns, so
+  the selection must stay until they exist.
+- `app.project.getAllLumetriPresetsList()` returns the 325 look names as an array of strings, with
+  duplicates across camera families; `applyLumetriPreset(name)` takes one string, acts on the selected
+  clips, returns true and appends a new Lumetri Color component to each, so a second look stacks a second
+  component. `getLumetriPresetsForFolderList` takes one argument.
+- `app.project.importAllAEComps(aepPath, bin)` and `importAEComps(aepPath, compNames, bin)` import each
+  composition as a project item named `<comp>/<project>.aep` whose media path is the `.aep`. Importing
+  all of one project gave 8 items (`Main B` twice); an unknown composition name imports nothing and
+  raises no error. An import starts an `aerendercore` process under Dynamic Link.
 - `premiere_tracks` adds stereo audio tracks and appends them after the last track.
 - `premiere_frame_export` writes `<folder>/<prefix>_<n>_<time>s.png` and checks each file and its PNG
   header on disk; a time at or past the sequence end is refused.

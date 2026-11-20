@@ -11,7 +11,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `sequence` takes a sequence's id as well as its name; project items take their id as well as a media path or name.
 - `premiere_inspect` returns each item's `id` and each sequence's `active`, and takes `items` and `tracks` to leave those parts out.
 - Markers take `color` (0 to 7) and `type` (`comment`, `chapter`, `segmentation`, `weblink` with `url`) in `premiere_markers_add` and `premiere_markers_edit`; `premiere_markers_edit` and `premiere_inspect` report them, and a moved marker keeps them.
-- Discovery budgets: 48 tools, 80000 schema bytes, 20000 catalog tokens, 900 tokens per tool.
+- Discovery budgets: 56 tools, 100000 schema bytes, 26000 catalog tokens, 900 tokens per tool.
+- `premiere_scene_detect` takes `engine` `premiere` to run Premiere's scene edit detection on the clip; `premiere_import` takes `ae_project` and `comps` to import After Effects compositions and reports each item's `id`; `premiere_color` takes `look` and `list_looks` for Lumetri looks.
 - `premiere_project` `save` takes `path` and `replace` to save the project as another file.
 - `premiere_tracks` sets an audio track's `volume_db` and reports each audio track's `volume`.
 - `premiere_clip_props` sets an audio clip's `pan`.

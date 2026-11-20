@@ -153,12 +153,18 @@ async def premiere_presets() -> Presets:
 
 @mcp.tool(annotations=WRITES)
 async def premiere_import(
-        files: Annotated[list[str], Field(min_length=1, description="Absolute paths of the files to import.")],
+        files: Annotated[list[str] | None, Field(min_length=1, description="Absolute paths of the files to "
+                                                                           "import.")] = None,
         bin: Annotated[str | None, Field(description="Bin to import into, created when missing; the project "
                                                      "root when omitted.")] = None,
+        ae_project: Annotated[str | None, Field(description="Absolute .aep path whose compositions to import "
+                                                            "instead of files.")] = None,
+        comps: Annotated[list[str] | None, Field(min_length=1, description="Composition names to import from "
+                                                                           "ae_project; all when omitted.")] = None,
         timeout: Timeout = 300) -> Import:
-    """Import files into the project, into a bin when one is named."""
-    return await asyncio.to_thread(host.import_files, files, bin, timeout)
+    """Import files, or After Effects compositions (ae_project, optionally comps), into the project, into a
+    bin when one is named. Returns each imported item's name and id."""
+    return await asyncio.to_thread(host.import_files, files, bin, timeout, ae_project, comps)
 
 
 @mcp.tool(annotations=WRITES)
@@ -408,17 +414,23 @@ async def premiere_items(
 async def premiere_scene_detect(
         track: Annotated[Track, Field(description="0-based video track index of the clip; 0 is V1.")] = 0,
         at: ClipAt = None, position_index: ClipIndex = None,
-        threshold: Annotated[float, Field(gt=0, lt=1, description="ffmpeg scene score a cut must exceed.")] = 0.3,
+        threshold: Annotated[float | None, Field(gt=0, lt=1, description="ffmpeg scene score a cut must exceed; "
+                                                                         "0.3 when omitted. Not for premiere.")]
+        = None,
         apply: Annotated[Literal["report", "cuts", "markers"],
                          Field(description="report only, split the clip at each cut, or add a marker per "
-                                           "cut.")] = "report",
+                                           "cut. premiere cannot report.")] = "report",
         include_audio: Annotated[bool, Field(description="With cuts, split every track, audio "
-                                                         "included.")] = False,
+                                                         "included. Not for premiere.")] = False,
+        engine: Annotated[Literal["ffmpeg", "premiere"],
+                          Field(description="ffmpeg reads the media; premiere runs Premiere's own scene edit "
+                                            "detection, whose markers go on the clip's project "
+                                            "item.")] = "ffmpeg",
         sequence: SequenceName = None, timeout: Timeout = 600) -> Scenes:
-    """Find hard cuts inside a placed video clip from its media and return them as timeline seconds;
-    optionally split the clip or add a marker at each."""
+    """Find hard cuts inside a placed video clip and return them as timeline seconds; optionally split the
+    clip or add a marker at each."""
     return await asyncio.to_thread(host.scene_detect, sequence, track, at, position_index, threshold, apply,
-                                   include_audio, timeout)
+                                   include_audio, timeout, engine)
 
 
 @mcp.tool(annotations=WRITES)

@@ -169,7 +169,8 @@ class Inspect(Result):
 
 class Imported(BaseModel):
     name: str
-    media_path: str
+    id: str
+    media_path: str | None
 
 
 class Import(Result):
