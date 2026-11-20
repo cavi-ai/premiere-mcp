@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.server.mcpserver.exceptions import ToolError
 
-from cavi_premiere_mcp import clip_tools, host
+from cavi_premiere_mcp import clip_tools, host, timeline
 from cavi_premiere_mcp.server import mcp
 
 JSX = Path(host.__file__).with_name("jsx")
@@ -443,7 +444,7 @@ class OneCallAtATimeTest(unittest.TestCase):
         self.assertEqual((jobs[0][1], jobs[2][1]), (jobs[1][1], jobs[3][1]), jobs)
 
 
-RIPPLE = """
+LANES = """
 function Time() { this.ticks = "0"; }
 function lane(name, clips) {
     var made = {name: name, items: [], isLocked: function () { return false; }};
@@ -469,10 +470,24 @@ function lane(name, clips) {
     });
     return made;
 }
+"""
+
+RIPPLE = LANES + """
 var main = {name: "Main", sequenceID: "s1", projectItem: {nodeId: "p1"}, timebase: "10160640000", end: "0",
     videoTracks: {numTracks: 2, 0: lane("V1", [["A", 0, 2], ["B", 2, 4], ["C", 4, 6]]), 1: lane("V2", V2)},
     audioTracks: {numTracks: 0}};
 var app = {project: {path: "/p.prproj", rootItem: {type: 2, children: {numItems: 0}},
+    sequences: {numSequences: 1, 0: main}, activeSequence: main, openSequence: function () {}}};
+"""
+
+# V1 and A1 at 25 fps; the QE razor is a no-op, so ranges are given on clip edges.
+TIMELINE = LANES + """
+function qeLane() { return {razor: function () {}}; }
+var qe = {project: {getActiveSequence: function () { return {getVideoTrackAt: qeLane, getAudioTrackAt: qeLane}; }}};
+var main = {name: "Main", sequenceID: "s1", projectItem: {nodeId: "p1"}, timebase: "10160640000",
+    end: String(END * 254016000000), videoTracks: {numTracks: 1, 0: lane("V1", V1)},
+    audioTracks: {numTracks: 1, 0: lane("A1", A1)}};
+var app = {enableQE: function () {}, project: {path: "/p.prproj", rootItem: {type: 2, children: {numItems: 0}},
     sequences: {numSequences: 1, 0: main}, activeSequence: main, openSequence: function () {}}};
 """
 
@@ -502,6 +517,47 @@ class RippleTest(unittest.TestCase):
         done, edits = self.remove_b([["X", 0, 3], ["Y", 6, 8]])
         self.assertEqual(done["removed"]["name"], "B")
         self.assertEqual(edits, ["remove B", "move C -2", "move Y -2"])
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required")
+class BatchTimelineTest(unittest.TestCase):
+    """Closing gaps and cutting ranges move each later clip once, by all that was removed before it."""
+
+    def edited(self, v1, call):
+        a1 = [[name.lower(), start, end] for name, start, end in v1]
+        with tempfile.TemporaryDirectory() as folder:
+            edits = Path(folder) / "edits.txt"
+            edits.write_text("")
+            stub = (f"var EDITS = {json.dumps(str(edits))}, V1 = {json.dumps(v1)}, A1 = {json.dumps(a1)}, "
+                    f"END = {v1[-1][2]};" + TIMELINE)
+            with mock.patch.object(host, "relay", node_relay(stub)):
+                return call(), edits.read_text().splitlines()
+
+    def test_closing_gaps_moves_each_later_clip_once(self):
+        done, edits = self.edited([["A", 0, 2], ["B", 3, 5], ["C", 6, 8]],
+                                  lambda: timeline.gaps("s1", "close", 0, False, 60))
+        self.assertEqual(edits, ["move B -1", "move C -2", "move b -1", "move c -2"])
+        self.assertEqual((done["closed"], done["moved"], done["remaining"]), (2, 4, 0))
+
+    def test_many_ranges_are_cut_in_one_job(self):
+        clips = [[name, i, i + 1] for i, name in enumerate("ABCDE")]
+        ranges = [{"start": 3, "end": 4}, {"start": 1, "end": 2}]
+        done, edits = self.edited(clips, lambda: timeline.range_remove("s1", None, None, "extract", 60, ranges))
+        self.assertEqual(edits, ["remove B", "remove D", "remove b", "remove d",
+                                 "move C -1", "move E -2", "move c -1", "move e -2"])
+        self.assertEqual(done["ranges"], [{"start": 1, "end": 2}, {"start": 3, "end": 4}])
+        self.assertEqual((done["start"], done["end"], done["removed"], done["moved"]), (1, 4, 4, 4))
+        done, edits = self.edited(clips, lambda: timeline.range_remove("s1", None, None, "lift", 60, ranges))
+        self.assertEqual(edits, ["remove B", "remove D", "remove b", "remove d"])
+
+    def test_ranges_that_overlap_or_come_with_start_are_refused_before_premiere(self):
+        with mock.patch.object(host, "relay", reached_the_app):
+            with self.assertRaisesRegex(ValueError, "1-3 s and 2-4 s overlap"):
+                timeline.range_remove("s1", None, None, "extract", 60, [{"start": 2, "end": 4}, {"start": 1, "end": 3}])
+            with self.assertRaisesRegex(ValueError, "not both"):
+                timeline.range_remove("s1", 1, 2, "extract", 60, [{"start": 3, "end": 4}])
+            with self.assertRaisesRegex(ValueError, "Give start and end, or ranges"):
+                timeline.range_remove("s1", 1, None, "extract", 60)
 
 
 MARKERS = """
@@ -821,6 +877,20 @@ class StatusTest(unittest.TestCase):
             self.assertIn("not an application", found[name]["error"])
         self.assertIsNone(found["prores_preset"])
 
+    def test_every_major_version_is_found(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for name, identifier in (("Premiere.app", "com.adobe.PremierePro.27"),
+                                     ("Encoder.app", "com.adobe.ame.application.27")):
+                (Path(folder) / name / "Contents/MacOS").mkdir(parents=True)
+                (Path(folder) / name / "Contents/MacOS/app").write_text("")
+                (Path(folder) / name / "Contents/Info.plist").write_bytes(plistlib.dumps(
+                    {"CFBundleIdentifier": identifier, "CFBundleExecutable": "app",
+                     "CFBundleShortVersionString": "27.0.0"}))
+            named = {"CAVI_PREMIERE_APP": f"{folder}/Premiere.app", "CAVI_MEDIA_ENCODER_APP": f"{folder}/Encoder.app"}
+            with mock.patch.dict(os.environ, named):
+                found = host.status()
+        self.assertEqual([found[name]["version"] for name in ("premiere", "media_encoder")], ["27.0.0", "27.0.0"])
+
     def test_presets_are_listed_without_premiere(self):
         with mock.patch.dict(os.environ, {"CAVI_PREMIERE_APP": "/nonexistent/Premiere.app"}):
             found = host.all_presets()
@@ -830,7 +900,7 @@ class StatusTest(unittest.TestCase):
 
 class SceneDetectTest(unittest.TestCase):
     def inspected(self, sequences):
-        return mock.patch.object(host, "inspect", lambda sequence, timeout: {"sequences": sequences})
+        return mock.patch.object(host, "inspect", lambda sequence, timeout, **_: {"sequences": sequences})
 
     def test_an_empty_project_is_a_clear_error(self):
         with self.inspected([]):

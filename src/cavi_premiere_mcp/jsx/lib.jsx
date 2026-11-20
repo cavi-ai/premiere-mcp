@@ -86,6 +86,13 @@ function secs(time) {
     return time ? Number(time.seconds) : null;
 }
 
+// A Time of the given seconds, on the tick grid.
+function timeAt(seconds) {
+    var t = new Time();
+    t.ticks = String(Math.round(seconds * TICKS));
+    return t;
+}
+
 // Sequence.end is a string of ticks.
 function endSeconds(sequence) {
     return Number(sequence.end) / TICKS;

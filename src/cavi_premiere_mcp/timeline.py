@@ -4,11 +4,13 @@ import asyncio
 from typing import Annotated, Literal
 
 from cavi_mcp_core.server import DESTRUCTIVE, reject_foreign
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import host
 from .app import Seconds, SequenceName, Timeout, mcp
 from .models import MarkerColor, MarkerType, Result, web_link
+
+MAX_RANGES = 500
 
 MARKERS_EDIT_USES = {"list": set(), "update": {"index", "at", "all", "name", "comment", "move_to", "duration",
                                                "color", "type", "url"},
@@ -39,10 +41,24 @@ def gaps(sequence, action, min_seconds, leading, timeout):
                                 "leading": leading}, timeout)
 
 
-def range_remove(sequence, start, end, mode, timeout):
-    if end <= start:
-        raise ValueError("end must be after start")
-    return host.invoke("range_remove", {"sequence": sequence, "start": start, "end": end, "mode": mode}, timeout)
+def range_remove(sequence, start, end, mode, timeout, ranges=None):
+    """One range from start and end, or every entry of ranges in one job, in timeline order; range times are
+    the timeline's before anything is removed."""
+    if ranges:
+        if start is not None or end is not None:
+            raise ValueError("Give start and end, or ranges, not both")
+    elif start is None or end is None:
+        raise ValueError("Give start and end, or ranges")
+    else:
+        ranges = [{"start": start, "end": end}]
+    ranges = sorted(({"start": r["start"], "end": r["end"]} for r in ranges), key=lambda r: r["start"])
+    for earlier, later in zip([None, *ranges], ranges):
+        if later["end"] <= later["start"]:
+            raise ValueError(f"end must be after start ({later['start']}-{later['end']} s)")
+        if earlier and later["start"] < earlier["end"]:
+            raise ValueError(f"The ranges {earlier['start']}-{earlier['end']} s and {later['start']}-{later['end']} s "
+                             "overlap")
+    return host.invoke("range_remove", {"sequence": sequence, "ranges": ranges, "mode": mode}, timeout)
 
 
 def bins(action, name, parent, new_name, items, force, timeout):
@@ -93,11 +109,20 @@ class Gaps(Result):
     remaining: int | None = None
 
 
+class Span(BaseModel):
+    """One range of a ranges list."""
+
+    model_config = ConfigDict(extra="forbid")
+    start: Seconds
+    end: Seconds
+
+
 class RangeRemoved(Result):
     sequence: str
     mode: str
     start: float
     end: float
+    ranges: list[Gap]
     removed: int
     moved: int
     sequence_end: float
@@ -157,14 +182,18 @@ async def premiere_gaps(
 
 @mcp.tool(annotations=DESTRUCTIVE)
 async def premiere_range_remove(
-        start: Annotated[Seconds, Field(description="Start of the range, in seconds.")],
-        end: Annotated[Seconds, Field(description="End of the range, in seconds; after start.")],
+        start: Annotated[Seconds | None, Field(description="Start of the range, in seconds.")] = None,
+        end: Annotated[Seconds | None, Field(description="End of the range, in seconds; after start.")] = None,
         mode: Annotated[Literal["lift", "extract"], Field(description="extract closes the hole; lift leaves it "
                                                                       "empty.")] = "extract",
+        ranges: Annotated[Annotated[list[Span], Field(max_length=MAX_RANGES)] | None,
+                          Field(description="Several ranges instead of start and end, cut in one job; their "
+                                            "times are the timeline's before anything is removed.")] = None,
         sequence: SequenceName = None, timeout: Timeout = 300) -> RangeRemoved:
-    """Cut a time range out of every unlocked track: clips are split at both times and the ones inside are
-    removed."""
-    return await asyncio.to_thread(range_remove, sequence, start, end, mode, timeout)
+    """Cut a time range out of every unlocked track, or many with ranges in one job: clips are split at both
+    times and the ones inside are removed."""
+    return await asyncio.to_thread(range_remove, sequence, start, end, mode, timeout,
+                                   [r.model_dump() for r in ranges or []])
 
 
 @mcp.tool(annotations=DESTRUCTIVE)

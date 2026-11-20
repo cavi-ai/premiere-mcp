@@ -97,7 +97,7 @@ See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for 
 | `premiere_transition_add` | Adds a transition to a clip edge. |
 | `premiere_razor` | Splits clips at times. |
 | `premiere_gaps` | Lists or closes empty gaps. |
-| `premiere_range_remove` | Cuts a time range out of every unlocked track. |
+| `premiere_range_remove` | Cuts one or many time ranges out of every unlocked track. |
 | `premiere_scene_detect` | Finds hard cuts in a clip's media and optionally splits or marks them. |
 | `premiere_markers_add` | Adds sequence markers or a beat grid. |
 | `premiere_markers_edit` | Lists, updates or deletes sequence markers. |

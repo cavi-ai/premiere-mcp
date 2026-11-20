@@ -42,11 +42,12 @@ MAILBOX_KEEP = 24 * 3600
 MAX_MARKERS = 5000
 MAX_PLACEMENTS = 500
 
-# (name, bundle identifier, glob under /Applications, environment override)
-PREMIERE = ("Adobe Premiere Pro", "com.adobe.PremierePro.26",
+# (name, bundle identifier, glob under /Applications, environment override). An identifier ending in a dot
+# takes the major version after it (com.adobe.PremierePro.27), so every release is found.
+PREMIERE = ("Adobe Premiere Pro", "com.adobe.PremierePro.",
             "Adobe Premiere Pro 20*/Adobe Premiere Pro 20*.app", "CAVI_PREMIERE_APP")
 BRIDGE = ("Adobe Bridge", "com.adobe.bridge", "Adobe Bridge 20*/Adobe Bridge 20*.app", "CAVI_BRIDGE_APP")
-MEDIA_ENCODER = ("Adobe Media Encoder", "com.adobe.ame.application.26",
+MEDIA_ENCODER = ("Adobe Media Encoder", "com.adobe.ame.application.",
                  "Adobe Media Encoder 20*/Adobe Media Encoder 20*.app", "CAVI_MEDIA_ENCODER_APP")
 
 
@@ -85,8 +86,17 @@ def left(deadline, least=0.0):
 
 
 def application(spec):
-    """The installed .app of an Adobe application: the override, else the newest under /Applications."""
-    return apps.bundle(*spec).path
+    """The installed .app of an Adobe application: the override, else the newest under /Applications, of the
+    newest major version installed."""
+    name, identifier, pattern, env = spec
+    if identifier.endswith("."):
+        override = os.environ.get(env)
+        found = [Path(override).expanduser()] if override else apps.APPLICATIONS.glob(pattern)
+        majors = [m for path in found if (m := re.fullmatch(re.escape(identifier) + r"(\d+)",
+                                                             str(apps.bundle_info(path).get("CFBundleIdentifier"))))]
+        if majors:
+            identifier = max(majors, key=lambda m: int(m[1]))[0]
+    return apps.bundle(name, identifier, pattern, env).path
 
 
 def premiere():
@@ -863,7 +873,7 @@ def scene_detect(sequence, track, at, position_index, threshold, apply, include_
     if include_audio and apply != "cuts":
         raise ValueError("include_audio needs apply=cuts")
     with exclusive(timeout):
-        clip = video_clip(inspect(sequence, timeout)["sequences"], sequence, track, at, position_index)
+        clip = video_clip(inspect(sequence, timeout, items=False)["sequences"], sequence, track, at, position_index)
         first, last, ratio = clip["in_point"], clip["out_point"], clip["speed"] / 100
         # Source times map through the speed, from the out point when the clip plays backwards.
         times = sorted(round(clip["start"] + ((last - t) if clip["reversed"] else (t - first)) / ratio, 3)
