@@ -35,7 +35,9 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - A missing input file is `INPUT_NOT_FOUND`; a relay Bridge never ran is `RELAY_NOT_APPROVED` and a Premiere Pro that never answered is `PREMIERE_NOT_READY`, both `rejected`.
 - Results leave out optional fields the tool did not set.
 - `premiere_scene_detect` `threshold` defaults to none; the ffmpeg engine uses 0.3 when it is omitted.
-- `premiere_color` always returns `applied`, `{}` when only a look or the look list was asked for; `clip` is left out for `list_looks`.- Requires cavi-mcp-core 0.1.8; the lock that serializes Premiere Pro calls refuses a lock file that is a symbolic link.
+- `premiere_color` always returns `applied`, `{}` when only a look or the look list was asked for; `clip` is left out for `list_looks`.
+- `premiere_import` results give each item's `id`; an After Effects composition's `media_path` is its `.aep` file.
+- Requires cavi-mcp-core 0.1.8; the lock that serializes Premiere Pro calls refuses a lock file that is a symbolic link.
 
 ### Fixed
 
