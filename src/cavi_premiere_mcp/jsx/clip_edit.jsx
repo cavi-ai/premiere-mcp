@@ -1,12 +1,6 @@
 // Edit a placed clip: trim, move, enable, rename, link, unlink, remove. Input: {sequence, kind, track,
 // at | position_index | name, trim_start, trim_end, move_to, to_track, enabled, new_name, link_with:
 // {kind, track, position_index}, unlink, remove (ripple|lift), keep_linked}. Seconds. Applied in that order.
-function timeAt(seconds) {
-    var t = new Time();
-    t.ticks = String(Math.round(seconds * TICKS));
-    return t;
-}
-
 function laneClip(sequence, kind, index, spec) {
     var found = null;
     if (spec.name) {

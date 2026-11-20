@@ -55,7 +55,7 @@ required.
 | `premiere_transition_add` | write | 300 | Adds a transition to a clip edge. |
 | `premiere_razor` | destructive | 300 | Splits clips at times. |
 | `premiere_gaps` | destructive | 300 | Lists or closes empty gaps. |
-| `premiere_range_remove` | destructive | 300 | Cuts a time range out of every unlocked track. |
+| `premiere_range_remove` | destructive | 300 | Cuts one or many time ranges out of every unlocked track. |
 | `premiere_scene_detect` | write | 600 | Finds hard cuts in a clip's media and optionally splits or marks them. |
 | `premiere_markers_add` | write | 300 | Adds sequence markers or a beat grid. |
 | `premiere_markers_edit` | destructive | 300 | Lists, updates or deletes sequence markers. |
@@ -566,8 +566,9 @@ Returns `sequence`, `cuts`, `clips_before`, `clips_after`, `warnings`.
 
 ### `premiere_gaps`
 
-Lists or closes empty gaps: time ranges with no clip on any unlocked track. `close` moves every later
-clip left, last gap first, so tracks stay in sync.
+Lists or closes empty gaps: time ranges with no clip on any unlocked track. `close` moves each later
+clip left once, by the length of the gaps before it, so tracks stay in sync; `moved` counts the clips
+moved.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -580,17 +581,22 @@ Returns `sequence`, `gaps`, `closed`, `moved`, `remaining`, `warnings`.
 
 ### `premiere_range_remove`
 
-Cuts a time range out of every unlocked track: clips are split at both times and the ones inside are
-removed. `extract` also moves later clips left to close the hole; `lift` leaves it empty.
+Cuts a time range out of every unlocked track, or many with `ranges` in one Premiere job: clips are
+split at both times and the ones inside are removed. `extract` also moves each later clip left once, by
+the length removed before it, to close the holes; `lift` leaves them empty. Give `start` and `end`, or
+`ranges`. Range times are the timeline's before anything is removed; ranges are sorted, and ranges that
+overlap are refused before Premiere is called. The result's `start` and `end` bound all the ranges,
+`ranges` lists each one on the frame grid and `moved` counts the clips moved.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `start` | number | required | Range start in seconds. |
-| `end` | number | required | Range end in seconds. |
-| `mode` | `lift`, `extract` | `"extract"` | Close the hole or leave it. |
+| `start` | number | none | Range start in seconds. |
+| `end` | number | none | Range end in seconds. |
+| `mode` | `lift`, `extract` | `"extract"` | Close the holes or leave them. |
+| `ranges` | list of object | none | Up to 500 ranges instead of `start` and `end`, each with `start` and `end`. |
 | `sequence` | string | none | The sequence. |
 
-Returns `sequence`, `mode`, `start`, `end`, `removed`, `moved`, `sequence_end`, `warnings`.
+Returns `sequence`, `mode`, `start`, `end`, `ranges`, `removed`, `moved`, `sequence_end`, `warnings`.
 
 ### `premiere_scene_detect`
 

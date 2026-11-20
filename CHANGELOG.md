@@ -16,6 +16,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_tracks` sets an audio track's `volume_db` and reports each audio track's `volume`.
 - `premiere_clip_props` sets an audio clip's `pan`.
 - `premiere_effect_set` `remove` and `premiere_transition_add` `remove` delete an effect or the transition at a clip edge.
+- `premiere_range_remove` takes `ranges` to cut many ranges in one job and reports each range on the frame grid; ranges that overlap are refused.
 
 ### Changed
 
@@ -49,6 +50,9 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_clip_slip` `offset` and `in_point` are source seconds on a retimed clip.
 - `premiere_scene_detect` maps cuts through the clip's speed and direction and decodes only its source range.
 - `premiere_clip_fit` counts the source and sequence pixel aspect ratios and reports `pixel_aspect`.
+- `premiere_gaps` `close` moves each later clip once by the gaps before it, and `moved` counts clips; it moved a clip once per earlier gap, so its time grew with the square of the clip count.
+- `premiere_scene_detect` reads the sequence without the project items.
+- Premiere Pro and Media Encoder are found at every major version, the newest installed first; only the 2026 release was found.
 
 ## 0.1.1 - 2026-11-16
 

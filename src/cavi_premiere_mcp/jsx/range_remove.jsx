@@ -1,15 +1,24 @@
-// Cut a time range out of the timeline. Input: {sequence, start, end, mode (lift|extract)}. The QE razor
-// splits clips at both times on every track; the clips inside are removed. extract also moves every later
-// clip of every unlocked track left by the range length. Locked tracks are left untouched. Seconds.
+// Cut time ranges out of the timeline. Input: {sequence, ranges: [{start, end}], mode (lift|extract)}: the
+// ranges in timeline order without overlaps, in seconds before anything is removed. The QE razor splits
+// clips at every range edge on every unlocked track; the clips inside a range are removed. extract also
+// moves each later clip of every unlocked track left once, by the length removed before it. Locked tracks
+// are left untouched.
 function run(A, report) {
-    var sequence = findSequence(A.sequence), q, i, j, lane, lanesList = [],
-        doomed = [], later = [], removed = 0, moved = 0, length = A.end - A.start, t;
-    A.start = snap(A.start, sequence);
-    A.end = snap(A.end, sequence);
-    length = A.end - A.start;
-    if (length <= 0) {
-        fail("The range is shorter than one frame");
+    var sequence = findSequence(A.sequence), q, i, j, lanesList = [], ranges = [], doomed = [], shifts = {},
+        removed = 0, moved = 0, start, stop, last;
+    for (i = 0; i < A.ranges.length; i++) {
+        start = snap(A.ranges[i].start, sequence);
+        stop = snap(A.ranges[i].end, sequence);
+        if (stop - start <= 0) {
+            fail("The range " + A.ranges[i].start + "-" + A.ranges[i].end + " s is shorter than one frame");
+        }
+        if (ranges.length && start < ranges[ranges.length - 1].end - 0.0005) {
+            fail("The ranges " + ranges[ranges.length - 1].start + "-" + ranges[ranges.length - 1].end + " s and "
+                 + start + "-" + stop + " s overlap on the frame grid");
+        }
+        ranges.push({start: start, end: stop});
     }
+    last = ranges[ranges.length - 1];
     app.enableQE();
     q = qe.project.getActiveSequence();
 
@@ -25,23 +34,37 @@ function run(A, report) {
 
     collect("video", sequence.videoTracks);
     collect("audio", sequence.audioTracks);
-    if (A.end > endSeconds(sequence) + 0.0005 || A.start >= endSeconds(sequence)) {
-        fail("The range " + A.start + "-" + A.end + " s is past the end of the sequence (" + endSeconds(sequence) + " s)");
+    if (last.end > endSeconds(sequence) + 0.0005 || last.start >= endSeconds(sequence)) {
+        fail("The range " + last.start + "-" + last.end + " s is past the end of the sequence ("
+             + endSeconds(sequence) + " s)");
     }
     for (i = 0; i < lanesList.length; i++) {
-        lanesList[i].q.razor(tcOf(A.start, sequence));
-        lanesList[i].q.razor(tcOf(A.end, sequence));
+        for (j = 0; j < ranges.length; j++) {
+            lanesList[i].q.razor(tcOf(ranges[j].start, sequence));
+            lanesList[i].q.razor(tcOf(ranges[j].end, sequence));
+        }
     }
+    // Clips come in timeline order, so one walk over the ranges finds the range a clip is inside and the
+    // length removed before it.
     for (i = 0; i < lanesList.length; i++) {
-        lane = lanesList[i];
-        each(lane.lane.clips, function (clip) {
-            if (secs(clip.start) >= A.start - 0.0005 && secs(clip.end) <= A.end + 0.0005) {
-                doomed.push({kind: lane.kind, index: lane.index, id: clip.nodeId, label: lane.kind + " " + lane.index});
-            } else if (A.mode === "extract" && secs(clip.start) >= A.end - 0.0005) {
-                later.push({kind: lane.kind, index: lane.index, id: clip.nodeId});
-            }
-        });
+        (function (lane) {
+            var next = 0, by = 0;
+            each(lane.lane.clips, function (clip) {
+                var at = secs(clip.start);
+                while (next < ranges.length && ranges[next].end <= at + 0.0005) {
+                    by += ranges[next].end - ranges[next].start;
+                    next += 1;
+                }
+                if (next < ranges.length && at >= ranges[next].start - 0.0005
+                        && secs(clip.end) <= ranges[next].end + 0.0005) {
+                    doomed.push({kind: lane.kind, index: lane.index, id: clip.nodeId, label: lane.kind + " " + lane.index});
+                } else if (A.mode === "extract" && by > 0) {
+                    shifts[lane.kind + lane.index + "/" + clip.nodeId] = by;
+                }
+            });
+        })(lanesList[i]);
     }
+    // Track objects go stale once a clip is removed, so tracks are fetched again each time.
     for (i = 0; i < doomed.length; i++) {
         each(track(sequence, doomed[i].kind, doomed[i].index).clips, function (clip) {
             if (clip && clip.nodeId === doomed[i].id) {
@@ -55,22 +78,23 @@ function run(A, report) {
             }
         });
     }
-    // Track objects go stale once a clip is removed, so tracks are fetched again each time.
-    // later was collected in ascending order per track, so each move leaves room for the next.
-    for (j = 0; j < later.length; j++) {
-        each(track(sequence, later[j].kind, later[j].index).clips, function (clip) {
-            if (clip && clip.nodeId === later[j].id) {
-                t = new Time();
-                t.ticks = String(Math.round(-length * TICKS));
-                clip.move(t);
-                moved += 1;
-            }
-        });
+    // Each lane is moved in timeline order, so each clip moves into room the one before it left.
+    for (i = 0; i < lanesList.length; i++) {
+        (function (lane) {
+            each(track(sequence, lane.kind, lane.index).clips, function (clip) {
+                var by = clip ? shifts[lane.kind + lane.index + "/" + clip.nodeId] : 0;
+                if (by) {
+                    clip.move(timeAt(-by));
+                    moved += 1;
+                }
+            });
+        })(lanesList[i]);
     }
     report.sequence = sequence.name;
     report.mode = A.mode;
-    report.start = A.start;
-    report.end = A.end;
+    report.start = ranges[0].start;
+    report.end = last.end;
+    report.ranges = ranges;
     report.removed = removed;
     report.moved = moved;
     report.sequence_end = endSeconds(sequence);

@@ -1,6 +1,7 @@
 // Find or close empty gaps. Input: {sequence, action (list|close), min_seconds, leading}. A gap is a time
-// range with no clip on any unlocked track. close moves every later clip of every unlocked track left,
-// last gap first, so audio and video stay in sync. leading includes the empty space before the first clip.
+// range with no clip on any unlocked track. close moves each later clip of every unlocked track left once,
+// by the length of the gaps before it, so audio and video stay in sync. leading includes the empty space
+// before the first clip.
 function lanes(sequence) {
     var found = [];
     each(sequence.videoTracks, function (lane, i) {
@@ -43,43 +44,40 @@ function findGaps(sequence, min, leading) {
     return gaps;
 }
 
-function shiftLeft(sequence, from, by) {
-    var all = lanes(sequence), moved = 0, i, t, ids = [];
+// Each clip of a lane is moved once, in timeline order, by the gaps that end at or before its start; a
+// clip never moves past room the clip before it left.
+function closeAll(sequence, gaps) {
+    var all = lanes(sequence), moved = 0, i;
     for (i = 0; i < all.length; i++) {
         if (all[i].lane.isLocked()) {
             continue;
         }
-        each(all[i].lane.clips, function (clip) {
-            if (secs(clip.start) >= from - 0.0005) {
-                ids.push({lane: all[i].lane, id: clip.nodeId});
-            }
-        });
-    }
-    for (i = 0; i < ids.length; i++) {
-        each(ids[i].lane.clips, function (clip) {
-            if (clip.nodeId === ids[i].id) {
-                t = new Time();
-                t.ticks = String(Math.round(-by * TICKS));
-                clip.move(t);
-                moved += 1;
-            }
-        });
+        (function (lane) {
+            var next = 0, shift = 0;
+            each(lane.clips, function (clip) {
+                var start = secs(clip.start);
+                while (next < gaps.length && gaps[next].end <= start + 0.0005) {
+                    shift += gaps[next].end - gaps[next].start;
+                    next += 1;
+                }
+                if (shift > 0) {
+                    clip.move(timeAt(-shift));
+                    moved += 1;
+                }
+            });
+        })(all[i].lane);
     }
     return moved;
 }
 
 function run(A, report) {
-    var sequence = findSequence(A.sequence), gaps = findGaps(sequence, A.min_seconds || 0, A.leading), i;
+    var sequence = findSequence(A.sequence), gaps = findGaps(sequence, A.min_seconds || 0, A.leading);
     report.sequence = sequence.name;
     report.gaps = gaps;
     if (A.action === "list") {
         return;
     }
-    report.closed = 0;
-    report.moved = 0;
-    for (i = gaps.length - 1; i >= 0; i--) {
-        report.moved += shiftLeft(sequence, gaps[i].end, gaps[i].end - gaps[i].start);
-        report.closed += 1;
-    }
+    report.moved = gaps.length ? closeAll(sequence, gaps) : 0;
+    report.closed = gaps.length;
     report.remaining = findGaps(sequence, A.min_seconds || 0, A.leading).length;
 }
