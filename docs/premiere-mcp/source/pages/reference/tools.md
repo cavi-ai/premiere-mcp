@@ -33,7 +33,7 @@ required.
 | `premiere_presets` | read | none | Lists export and sequence presets. |
 | `premiere_effects` | read | 300 | Lists the video and audio effects Premiere offers. |
 | `premiere_find` | read | 300 | Finds project items and placed clips by name or path. |
-| `premiere_import` | write | 300 | Imports files into a bin. |
+| `premiere_import` | write | 300 | Imports files or After Effects compositions into a bin. |
 | `premiere_items` | destructive | 300 | Renames, moves, labels, subclips, interprets, proxies or deletes a project item. |
 | `premiere_bins` | destructive | 300 | Creates, renames, deletes bins and moves items into them. |
 | `premiere_media_replace` | write | 300 | Points a project item at a new file or refreshes it. |
@@ -49,14 +49,14 @@ required.
 | `premiere_clip_fit` | write | 300 | Scales a clip to fit or fill the frame. |
 | `premiere_clip_props` | write | 300 | Sets Motion, Opacity and Volume, static or keyframed. |
 | `premiere_fade` | destructive | 300 | Fades a clip in and out. |
-| `premiere_color` | destructive | 300 | Basic Lumetri Color correction. |
+| `premiere_color` | destructive | 300 | Basic Lumetri Color correction and Lumetri looks. |
 | `premiere_effect_add` | write | 300 | Adds an effect to a clip. |
 | `premiere_effect_set` | write | 300 | Sets or lists component parameters. |
 | `premiere_transition_add` | write | 300 | Adds a transition to a clip edge. |
 | `premiere_razor` | destructive | 300 | Splits clips at times. |
 | `premiere_gaps` | destructive | 300 | Lists or closes empty gaps. |
 | `premiere_range_remove` | destructive | 300 | Cuts one or many time ranges out of every unlocked track. |
-| `premiere_scene_detect` | write | 600 | Finds hard cuts in a clip's media and optionally splits or marks them. |
+| `premiere_scene_detect` | write | 600 | Finds hard cuts in a clip, with ffmpeg or Premiere, and optionally splits or marks them. |
 | `premiere_silence` | destructive | 600 | Finds silences in an audio clip's media and optionally marks or cuts them out. |
 | `premiere_markers_add` | write | 300 | Adds sequence markers or a beat grid. |
 | `premiere_markers_edit` | destructive | 300 | Lists, updates or deletes sequence markers. |
@@ -196,12 +196,18 @@ Returns `items`, `clips`, `warnings`.
 
 ### `premiere_import`
 
-Imports files into a bin, created when missing; the project root when `bin` is empty.
+Imports files, or the compositions of an After Effects project, into a bin, created when missing; the
+project root when `bin` is empty. Give exactly one of `files` or `ae_project`. A composition becomes one
+project item named `<comp>/<project>.aep`; a name the project does not hold imports nothing and fails.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
-| `files` | list of string | required | At least one absolute path. |
+| `files` | list of string | none | At least one absolute path. |
 | `bin` | string | none | Target bin name. |
+| `ae_project` | string | none | Absolute `.aep` path whose compositions to import. |
+| `comps` | list of string | none | Composition names to import from `ae_project`; all when omitted. |
+
+Each `imported` entry has `name`, `id` and `media_path`.
 
 Returns `bin`, `imported`, `warnings`.
 
@@ -474,6 +480,8 @@ Returns `clip`, `keyframes`, `warnings`.
 
 Basic color correction on a video clip with Lumetri Color, added when the clip has none. `exposure` is
 in stops from -5 to 5, `saturation` runs 0 to 200 (100 is neutral) and the others run -100 to 100.
+`look` applies a Lumetri look (preset) first; each look adds its own Lumetri Color component and the
+values go to the clip's first one. `list_looks` returns the look names and takes no other argument.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -487,12 +495,14 @@ in stops from -5 to 5, `saturation` runs 0 to 200 (100 is neutral) and the other
 | `tint` | number | none | Tint. |
 | `saturation` | number | none | Saturation. |
 | `vibrance` | number | none | Vibrance. |
+| `look` | string | none | Look name from `list_looks`, applied before the values. |
+| `list_looks` | boolean | `false` | Return the look names and nothing else. |
 | `track` | integer | `0` | Video track index. |
 | `at` | number | none | Address by time. |
 | `position_index` | integer | none | Address by place on the track. |
 | `sequence` | string | none | The sequence. |
 
-Returns `clip`, `applied`, `warnings`.
+Returns `clip`, `applied`, `look`, `looks`, `warnings`.
 
 ### `premiere_effect_add`
 
@@ -603,18 +613,23 @@ Returns `sequence`, `mode`, `start`, `end`, `ranges`, `removed`, `moved`, `seque
 
 ### `premiere_scene_detect`
 
-Finds hard cuts inside a placed video clip from its media (an ffmpeg scene score above `threshold`)
-and returns them as timeline seconds, through the clip's speed and direction. Only the clip's source
-range is decoded. Needs `ffmpeg`.
+Finds hard cuts inside a placed video clip and returns them as timeline seconds, through the clip's
+speed and direction. `engine` `ffmpeg` reads the media (an ffmpeg scene score above `threshold`), decodes
+only the clip's source range and needs `ffmpeg`. `engine` `premiere` runs Premiere's own scene edit
+detection on that clip alone, restores the selection after, and always edits: `cuts` splits the clip (and
+its linked audio) and `markers` adds markers to the clip's project item at source times, reported here
+on the timeline; a marker the item already had is not reported again. It refuses `apply` `report`,
+`threshold` and `include_audio`.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
 | `track` | integer | `0` | Video track index. |
 | `at` | number | none | Address by time. |
 | `position_index` | integer | none | Address by place on the track. |
-| `threshold` | number | `0.3` | Scene score between 0 and 1, exclusive. |
+| `threshold` | number | none | Scene score between 0 and 1, exclusive; 0.3 with `ffmpeg`. |
 | `apply` | `report`, `cuts`, `markers` | `"report"` | Only report, split the clip at each cut, or add a marker per cut. |
-| `include_audio` | boolean | `false` | With `cuts`, split the audio tracks too. |
+| `include_audio` | boolean | `false` | With `cuts`, split the audio tracks too (`ffmpeg`). |
+| `engine` | `ffmpeg`, `premiere` | `"ffmpeg"` | Where the cuts come from. |
 | `sequence` | string | none | The sequence. |
 
 Returns `clip`, `cuts`, `applied`, `clips_after`, `markers`, `warnings`.
