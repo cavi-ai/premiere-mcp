@@ -111,6 +111,7 @@ See the [tool reference](docs/premiere-mcp/source/pages/reference/tools.md) for 
 | `premiere_interchange` | Exports FCP XML, AAF or OMF, or imports an FCP XML. |
 | `premiere_loudness` | Measures a file's loudness against a target and optionally writes a normalized copy. |
 | `premiere_item_new` | Creates bars and tone, black video or transparent video in the project. |
+| `premiere_render` | Reports a sequence's unrendered ranges and optionally renders it. |
 
 </details>
 

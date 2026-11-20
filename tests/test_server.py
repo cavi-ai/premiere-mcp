@@ -16,7 +16,7 @@ TOOLS = {"premiere_status", "premiere_bridge_install", "premiere_script", "premi
          "premiere_effect_add", "premiere_effect_set", "premiere_clip_fit", "premiere_items",
          "premiere_scene_detect", "premiere_silence", "premiere_markers_edit", "premiere_gaps", "premiere_range_remove",
          "premiere_bins", "premiere_fade", "premiere_find", "premiere_clip_copy",
-         "premiere_color", "premiere_clip_slip", "premiere_loudness", "premiere_item_new"}
+         "premiere_color", "premiere_clip_slip", "premiere_loudness", "premiere_item_new", "premiere_render"}
 
 
 class PackageTest(unittest.TestCase):

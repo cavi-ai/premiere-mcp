@@ -21,6 +21,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_silence` finds the silences in a placed audio clip through its speed and direction, and reports, marks, lifts or extracts them in one job.
 - `premiere_loudness` measures a file's integrated loudness, loudness range and true peak against a preset or explicit target, and `normalize` writes a two-pass loudnorm copy.
 - `premiere_item_new` creates bars and tone, black video or transparent video in the project.
+- `premiere_render` reports a sequence's red and yellow render ranges in timeline seconds and renders the sequence.
 - A `pin-core` workflow opens a pull request that locks each new cavi-mcp-core release.
 
 ### Changed

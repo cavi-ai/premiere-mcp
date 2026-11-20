@@ -104,5 +104,7 @@
   {"id": "loudness-refuses-preset-with-explicit-target", "tool": "premiere_loudness",
    "arguments": {"file": "/m.wav", "target": "podcast", "target_lufs": -20}, "kind": "invalid", "error": "not both"},
   {"id": "item-new-needs-a-kind", "tool": "premiere_item_new", "arguments": {}, "kind": "invalid",
-   "error": "kind"}
+   "error": "kind"},
+  {"id": "render-timeout-floor", "tool": "premiere_render", "arguments": {"timeout": 29}, "kind": "invalid",
+   "error": "greater than or equal to 30"}
 ]

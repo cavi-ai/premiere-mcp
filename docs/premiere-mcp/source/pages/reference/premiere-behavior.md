@@ -127,11 +127,17 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
     array of two `QETime` objects (`secs`, `ticks`, `timecode`, `frames`) for 0 and 3.00000023841858 s, so
     ranges are flat start, end pairs; `getRedBarTimes()` and `getGreenBarTimes()` returned empty arrays.
     `renderAll`, `renderPreview` and `getRedBarTimes` reflect no arguments.
-32. Not measured on 27.0.0: `renderAll` and `renderPreview` on a sequence, `newColorMatte` (how a color is
-    given) and `newUniversalCountingLeader`. Premiere Pro stopped answering the relay after a
-    `newUniversalCountingLeader(640, 360, 25, 1, 1, 48000)` call and had not answered 30 minutes later, so
-    `premiere_item_new` offers bars and tone, black video and transparent video only and no render tool is
-    registered.
+32. `newUniversalCountingLeader(640, 360, 25, 1, 1, 48000)` left Premiere Pro 27.0.0 unresponsive to
+    scripts; it had not answered 30 minutes later and was force-quit. `newColorMatte` takes five arguments,
+    none of them a color, and was not called. `premiere_item_new` offers bars and tone, black video and
+    transparent video only.
+33. QE sequence `renderAll()` and `renderPreview()` take no arguments, return true in about 1 s for a 3 s
+    H.264 clip, and turn its yellow range (0 to 3 s) into a green one (`getGreenBarTimes()` returned two
+    `QETime` for 0 and 3 s). `setInOutPoints('00:00:01:00', '00:00:02:00')` before `renderPreview()`
+    still rendered 0 to 3 s, so no partial range is offered. Neither call opened a dialog.
+34. A clip whose frames were rendered in an earlier project of the same session reads green before any
+    render: preview files are reused by content, and `deletePreviewFiles()` on the QE sequence did not make
+    it yellow again. A clip from a source range not rendered before reads yellow `[0, 3]`.
 
 ## Tool behavior
 
