@@ -51,9 +51,10 @@ bottom of the frame); a ProRes preset has no effect.
 ## Encode in Media Encoder
 
 `premiere_encode` takes the same `master`, `preset`, `range` and `replace`. It starts Media Encoder when it
-is not running, waits for it, queues the sequence and starts the batch. Premiere Pro stays free
-while the file renders. The call returns when the output exists, no process holds it open and
-`ffprobe` finds the expected frames.
+is not running, waits until it answers scripts, queues the sequence and starts the batch. Premiere Pro
+stays free while the file renders. The call returns when the output exists, no process holds it open and
+`ffprobe` finds the expected frames. A job Media Encoder fails ends the call with Media Encoder's
+message, and a range with nothing in it is refused before a job is queued.
 
 ## Stills
 

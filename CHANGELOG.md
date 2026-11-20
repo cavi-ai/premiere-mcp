@@ -53,6 +53,9 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - `premiere_gaps` `close` moves each later clip once by the gaps before it, and `moved` counts clips; it moved a clip once per earlier gap, so its time grew with the square of the clip count.
 - `premiere_scene_detect` reads the sequence without the project items.
 - Premiere Pro and Media Encoder are found at every major version, the newest installed first; only the 2026 release was found.
+- `premiere_encode` waits until a Media Encoder it started answers scripts instead of 40 s, and a job Media Encoder fails ends the call with its message instead of waiting for `timeout`.
+- `premiere_export` and `premiere_encode` refuse a range with nothing in it; it waited for a file until `timeout`.
+- `premiere_encode` `timeout` bounds the Media Encoder start as well.
 
 ## 0.1.1 - 2026-11-16
 

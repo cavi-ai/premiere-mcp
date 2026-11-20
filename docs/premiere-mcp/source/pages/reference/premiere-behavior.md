@@ -72,8 +72,12 @@ Adobe Bridge 2026 on macOS. Each item says what was observed.
     files synchronously; OMF also writes `<name>omfLog.txt` beside it. `importFiles` on an FCP XML adds its
     sequence. `autoReframeSequence(num, den, preset, name, nest)` returns the new sequence.
 20. `app.encoder.encodeSequence(sequence, path, preset, range, 1)` returns a job id and `startBatch()` runs
-    it; right after Media Encoder launches the job is not accepted, so the tool waits for the launch. A 4 s
-    ProRes in/out job finished in about 25 s.
+    it; right after Media Encoder launches the job is not accepted, so the tool waits until the `ame`
+    target answers a script. A 4 s ProRes in/out job finished in about 25 s; on 27.0.0 a 3 s ProRes job from
+    Media Encoder stopped took 10 s. `app.encoder.bind("onEncoderJobError", f)` and
+    `"onEncoderJobComplete"` run after the script that queued the job has returned; a master in a read-only
+    folder gives `Encoding error (9007)`. Media Encoder's `getBatchEncoderStatus()` read `stopped` 2 s after
+    both a failed and a finished job. An empty sequence queues a job that writes no file.
 21. `overwriteClip` and `insertClip` at a time off the frame grid start the clip on the nearest frame (20 s
     in a 23.976 fps sequence starts at 20.02). Source in and out points land on frames of the media (0.5 and
     2.5 on 25 fps media read back 0.48 and 2.48).
